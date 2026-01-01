@@ -1,0 +1,2915 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>DEAD BALLS</title>
+<style>
+  html, body { margin:0; padding:0; background:#111; color:#eee; font-family:system-ui, sans-serif; }
+  #ui { position:fixed; left:10px; top:10px; z-index:10; }
+  .row { margin-bottom:6px; }
+  #game { display:block; margin:12px auto; border:2px solid #444; background:#1a1a1a; }
+  .help-panel {
+    padding:8px;
+    margin-top:8px;
+    font-size:12px;
+    max-width:260px;
+  }
+
+  .help-panel ul {
+    padding-left:16px;
+    margin:4px 0 0 0;
+  }
+
+  .help-panel hr {
+    border-color:#444;
+    margin:6px 0;
+  }
+
+  .badge { display:inline-block; padding:2px 6px; margin-right:6px; border:1px solid #666; border-radius:4px; }
+  .power { margin-top:4px; font-size:12px; color:#ddd; }
+  #menu {
+    position:fixed;
+    inset:0;
+    background:#111;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    z-index:999;
+    }
+
+  #menu h1 {
+    margin-bottom:20px;
+  }
+
+  #menu button {
+    padding:10px 20px;
+    font-size:18px;
+    cursor:pointer;
+  }
+
+</style>
+</head>
+<body>
+<div id="ui">
+  <div class="row">Round: <span id="round">1</span></div>
+  <div class="row">Zombies Left: <span id="zombiesLeft">0</span></div>
+  <div class="row">Points: <span id="points">0</span></div>
+  <div class="row">Health (hits left): <span id="health">3</span> / <span id="healthMax">3</span></div>
+  <div class="row">Weapon: <span id="weapon">Pistol</span> | Ammo: <span id="ammo">10 / 60</span></div>
+  <div class="row">Active Power-Ups: <span id="powers"></span></div>
+  <div class="row">Perks: <span id="perks"></span></div>
+  <div id="help-left" class="row help-panel">
+    <div><strong>Controls</strong></div>
+    <div>WASD = Move</div>
+    <div>Mouse = Aim</div>
+    <div>Left click = Shoot</div>
+    <div>R = Reload</div>
+    <div>E = Interact / Repair (hold near barrier)</div>
+  </div>
+
+</div>
+<div id="menu">
+  <h1>🧟 Dead BALLS</h1>
+
+  <input type="file" id="mapLoader" accept=".json">
+  <br><br>
+
+  <button id="startBtn" disabled>Start Game</button>
+
+  <p id="mapName">No map loaded</p>
+</div>
+
+<canvas id="game"></canvas>
+
+
+
+
+
+
+<script src="guns.js"></script>
+
+
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  function resizeCanvasToScreen() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    camera.w = canvas.width;
+    camera.h = canvas.height;
+  }
+
+
+
+  // resize once on load
+  function resizeCanvasToScreen() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+
+
+  // resize when browser window changes
+  window.addEventListener('resize', resizeCanvasToScreen);
+
+
+  // UI elements
+  const uiRound = document.getElementById('round');
+  const uiPoints = document.getElementById('points');
+  const uiHealth = document.getElementById('health');
+  const uiHealthMax = document.getElementById('healthMax');
+  const uiWeapon = document.getElementById('weapon');
+  const uiAmmo = document.getElementById('ammo');
+  const uiPowers = document.getElementById('powers');
+  const uiPerks = document.getElementById('perks');
+  const uiZombiesLeft = document.getElementById('zombiesLeft');
+
+
+  let LOADED_MAP = null;
+  let gameStarted = false;
+  let WIDTH = canvas.width;
+  let HEIGHT = canvas.height;
+  let WORLD_WIDTH = WIDTH;
+  let WORLD_HEIGHT = HEIGHT;
+  let gamePaused = false;
+
+
+  // ONLY set defaults if no map is loaded
+    if (!LOADED_MAP) {
+      WORLD_WIDTH = WIDTH;
+      WORLD_HEIGHT = HEIGHT;
+    }
+
+
+  let roundBannerStart = 0;
+  const ROUND_BANNER_DURATION = 2000; // ms
+
+  
+  
+
+  const menu = document.getElementById('menu');
+  const mapLoader = document.getElementById('mapLoader');
+  const startBtn = document.getElementById('startBtn');
+  const mapNameText = document.getElementById('mapName');
+
+  mapLoader.addEventListener('change', () => {
+    const file = mapLoader.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        LOADED_MAP = JSON.parse(reader.result);
+        mapNameText.textContent = `Loaded: ${file.name}`;
+        startBtn.disabled = false;
+      } catch {
+        alert("Invalid map file");
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  startBtn.onclick = () => {
+    zombies.length = 0;
+    bullets.length = 0;
+    loadMap(LOADED_MAP);
+    menu.style.display = 'none';
+
+    gameStarted = true;
+    round = 1;
+    startRoundSpawns();
+  };
+
+
+
+  function drawWorldBorder() {
+    ctx.save();
+
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 4 / camera.zoom; // consistent thickness
+    ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+    ctx.restore();
+  }
+
+
+
+
+
+  // ===== GLOBAL GAME ARRAYS (MUST BE ABOVE loadMap) =====
+  const zombies = [];
+  const bullets = [];
+  const barriers = [];
+  const zombieSpawns = [];
+  const walls = [];
+  const mysteryBoxes = [];
+  const perkMachines = [];
+  const upgradeStations = [];
+  const wallBuys = [];
+  const interacts = [];
+  const powerDrops = [];
+  const SHOW_WORLD_BORDER = true;
+  const doors = [];
+  const ZOMBIE_STUCK_TIME = 10.5;     // seconds before considered stuck
+  const ZOMBIE_STUCK_DIST = 2;      // px movement threshold
+  const ZOMBIE_TELEPORT_RADIUS = 15 * 15; // 25 blocks × 20px grid
+  // ===== MYSTERY BOX SYSTEM =====
+  let activeMysteryIndex = -1;
+  let mysterySpinCount = 0;
+
+  const MYSTERY_MOVE_SPINS = 10;
+  const MYSTERY_MOVE_CHANCE = 0.45;
+  const zombieTraps = [];
+
+  const perkColors = {
+    juggernog:  '#e74c3c', 
+    speedCola:  '#3498db', 
+    doubleTap:  '#f1c40f', 
+    staminUp:   '#f57242', 
+    quickRevive:'#1abc9c'  
+  };
+
+
+  // ===== ZOMBIE DROP RARITIES =====
+  const DROP_RARITIES = {
+    common: {
+      chance: 0.65,
+      drops: ['2X', 'CARPENTER']
+    },
+    rare: {
+      chance: 0.25,
+      drops: ['INSTA', 'MAX']
+    },
+    legendary: {
+      chance: 0.10,
+      drops: ['NUKE', 'DEATH']
+    }
+  };
+
+
+
+
+
+  
+
+  // ===== CAMERA =====
+  const camera = {
+      x: 0,
+      y: 0,
+      zoom: 1.3,
+      w: window.innerWidth,
+      h: window.innerHeight
+    };
+
+    // ✅ FIRST SAFE CALL
+    resizeCanvasToScreen();
+    camera.w = canvas.width;
+    camera.h = canvas.height;
+
+    // ✅ SAFE resize listener
+    window.addEventListener('resize', () => {
+      resizeCanvasToScreen();
+      camera.w = canvas.width;
+      camera.h = canvas.height;
+    })
+
+    resizeCanvasToScreen();
+
+
+
+    function clampPlayerToWorld() {
+      player.x = clamp(player.x, player.radius, WORLD_WIDTH - player.radius);
+      player.y = clamp(player.y, player.radius, WORLD_HEIGHT - player.radius);
+    }
+
+    function isSpawnUnlocked(spawn) {
+      // No door link = always active
+      if (!spawn.linkedDoorId) return true;
+
+      const door = doors.find(d => d.id === spawn.linkedDoorId);
+      if (!door) return true; // safety fallback
+
+      return door.open === true;
+    }
+
+
+  
+
+  window.loadMap = function(map) {
+    console.log("LOADING MAP", map);
+    
+
+
+
+  // Map size
+    if (map.width && map.height) {
+        WORLD_WIDTH = map.width;
+        WORLD_HEIGHT = map.height;
+      }
+
+
+    doors.length = 0;
+
+    if (Array.isArray(map.doors)) {
+      map.doors.forEach(d => {
+        doors.push({
+          id: d.id,
+          x: d.x,
+          y: d.y,
+          w: d.w,
+          h: d.h,
+          rotation: d.rotation || 0,
+          cost: d.cost,
+          open: false
+        });
+
+      });
+    }
+
+
+
+
+  // Reset barriers AFTER creation
+    for (const b of barriers) {
+      b.hpMax = b.hpMax ?? 100;
+      b.hp = b.hpMax;
+      b.open = false;
+    }
+
+
+  // Clear existing data
+    barriers.length = 0;
+    perkMachines.length = 0;
+    wallBuys.length = 0;
+    mysteryBoxes.length = 0;
+    upgradeStations.length = 0;
+    zombieSpawns.length = 0;
+    interacts.length = 0;
+    zombieTraps.length = 0;
+
+    if (map.spawns && map.spawns.length > 0) {
+      player.x = map.spawns[0].x;
+      player.y = map.spawns[0].y;
+    }
+
+    
+
+
+
+    /* ---------- WALLS (CENTER → TOP-LEFT FIX) ---------- */
+    /* ---------- WALLS (CENTER-BASED) ---------- */
+    walls.length = 0;
+
+    if (Array.isArray(map.walls)) {
+      map.walls.forEach(w => {
+        walls.push({
+          x: w.x,
+          y: w.y,
+          w: w.w,
+          h: w.h,
+          rotation: w.rotation || 0
+        });
+      });
+    }
+      doors.forEach(d => {
+        if (!d.open) {
+          resolveCircleWallCollision(player, d);
+          zombies.forEach(z => resolveCircleWallCollision(z, d));
+        }
+      });
+
+    // ---------- TRAP INTERACTS ----------
+    // ---------- ZOMBIE TRAP INTERACTS ----------
+
+
+
+
+
+
+
+
+  /* ---------- BARRIERS ---------- */
+  /* ---------- BARRIERS ---------- */
+  /* ---------- BARRIERS (CENTER → TOP-LEFT FIX) ---------- */
+    if (Array.isArray(map.barriers)) {
+      map.barriers.forEach(b => {
+        barriers.push({
+          // convert center-based to top-left
+          x: b.x - b.w / 2,
+          y: b.y - b.h / 2,
+          w: b.w,
+          h: b.h,
+
+          rotation: b.rotation || 0, // keep for future
+          hpMax: 100,
+          hp: 100,
+          open: false
+        });
+      });
+    }
+
+
+
+    
+
+    // ---------- PLAYER SPAWN ----------
+    if (Array.isArray(map.playerSpawns) && map.playerSpawns.length > 0) {
+      const s = map.playerSpawns[Math.floor(Math.random() * map.playerSpawns.length)];
+      player.x = s.x;
+      player.y = s.y;
+    } else {
+      // fallback
+      player.x = WORLD_WIDTH / 2;
+      player.y = WORLD_HEIGHT / 2;
+    }
+
+  /* ---------- INTERACTABLES ---------- */
+    if (Array.isArray(map.interacts)) {
+      map.interacts.forEach(obj => {
+
+
+
+
+        if (obj.type === 'perk') {
+          perkMachines.push({
+            x: obj.x,
+            y: obj.y,
+            perk: obj.perk,
+            cost: obj.cost
+          });
+        }
+
+        else if (obj.type === 'wallbuy') {
+          wallBuys.push({
+            x: obj.x,
+            y: obj.y,
+            gun: obj.gun,
+            cost: obj.cost
+          });
+        }
+
+        else if (obj.type === 'mystery') {
+          mysteryBoxes.push({
+            x: obj.x,
+            y: obj.y,
+            cost: obj.cost
+          });
+        }
+
+        else if (obj.type === 'upgrade') {
+          upgradeStations.push({
+            x: obj.x,
+            y: obj.y,
+            cost: obj.cost
+          });
+        }
+
+        else if (obj.type === 'trap') {
+          zombieTraps.push({
+            x: obj.x,
+            y: obj.y,
+            w: obj.w,
+            h: obj.h,
+            cost: obj.cost,
+            duration: obj.duration ?? 10,
+            cooldown: obj.cooldown ?? 10,
+
+            // 🔥 RUNTIME STATE (MUST LIVE HERE)
+            active: false,
+            pending: false,
+            activateAt: 0,
+            activeUntil: 0,
+            cooldownUntil: 0
+          });
+
+        }
+
+
+        else {
+          console.warn("Unknown interact type:", obj);
+        }
+      });
+    }
+
+    //------------------
+    // Rebuild interact list (used by draw() and E key)
+    for (const p of perkMachines) {
+      interacts.push({
+        type: 'perk',
+        x: p.x,
+        y: p.y,
+        perk: p.perk,
+        cost: p.cost,
+        label: `${p.perk} (${p.cost})`,
+        action: () => tryBuyPerk(p.perk, p.cost)
+      });
+    }
+
+
+  for (const w of wallBuys) {
+    interacts.push({
+      type: 'wall',
+      x: w.x,
+      y: w.y,
+      gunName: w.gun,
+      cost: w.cost,
+      label: `Buy ${w.gun} (${w.cost})`,
+      action: () => {
+        const gunKey = w.gun.trim().toUpperCase();
+        const gun = WALL_BUY_GUNS[gunKey];
+
+        if (!gun) {
+          console.warn("Invalid wall-buy gun:", w.gun);
+          return;
+        }
+
+        tryBuyAmmoOrGun(gun, w.cost);
+      }
+
+
+    });
+  }
+
+  for (const m of mysteryBoxes) {
+    interacts.push({
+      type: 'box',
+      x: m.x,
+      y: m.y,
+      cost: m.cost,
+      label: () =>
+        m.active
+          ? `Mystery Box (${m.cost})`
+          : `Inactive Mystery Box`,
+      action: () => {
+        if (!m.active) return;
+        tryMysteryBox(m.cost);
+      },
+      ref: m // 🔑 keep reference
+    });
+  }
+
+
+  for (const d of doors) {
+    interacts.push({
+      type: 'door',
+      x: d.x,
+      y: d.y,
+      cost: d.cost,
+      label: `Open Door (${d.cost})`,
+      action: () => tryBuyDoor(d)
+    });
+  }
+
+
+  for (const u of upgradeStations) {
+    interacts.push({
+      type: 'upgrade',
+      x: u.x,
+      y: u.y,
+      cost: u.cost,
+      label: () => `Upgrade (${u.cost})`,
+      action: () => tryUpgradeCurrentGun()
+    });
+  }
+
+    // ---------- ZOMBIE TRAP INTERACTS ----------
+    // ---------- ZOMBIE TRAP INTERACTS ----------
+    for (const t of zombieTraps) {
+
+      // ✅ SAFETY INIT (VERY IMPORTANT)
+      if (t.cooldownUntil == null) t.cooldownUntil = 0;
+      if (t.activeUntil == null) t.activeUntil = 0;
+      if (t.activateAt == null) t.activateAt = 0;
+      if (t.pending == null) t.pending = false;
+      if (t.active == null) t.active = false;
+
+      interacts.push({
+        x: t.x,
+        y: t.y,
+        r: 48,
+
+        label() {
+          const now = performance.now();
+
+          if (t.active) return 'Trap Active';
+          if (t.pending) return 'Activating...';
+          if (now < t.cooldownUntil) return 'Cooling Down...';
+
+          return `Activate Trap (${t.cost})`;
+        },
+
+        action() {
+          const now = performance.now();
+
+            if (t.active) return;
+            if (t.pending) return;
+            if (now < t.cooldownUntil) return;
+            if (player.points < t.cost) return;
+
+            player.points -= t.cost;
+
+            t.pending = true;
+            t.activateAt = now + 2000;
+          }
+
+      });
+    }
+
+
+
+
+  function initMysteryBoxes() {
+    if (mysteryBoxes.length === 0) return;
+
+    activeMysteryIndex = Math.floor(Math.random() * mysteryBoxes.length);
+
+    mysteryBoxes.forEach((b, i) => {
+      b.active = i === activeMysteryIndex;
+    });
+  }
+
+  initMysteryBoxes();
+
+
+
+    
+
+  /* ---------- ZOMBIE SPAWNS ---------- */
+    if (Array.isArray(map.spawns)) {
+      map.spawns.forEach(s => {
+        zombieSpawns.push({
+          x: s.x,
+          y: s.y,
+          linkedDoorId: s.linkedDoorId ?? null
+        });
+      });
+    }
+
+    console.log("MAP APPLIED");
+  };
+
+
+  function zombieBlockedByBarrier(z) {
+    const b = z.targetBarrier;
+    if (!b) return false;
+
+    // barrier exists and is NOT open / broken
+    return !b.open;
+  }
+
+
+
+  function ownedGunCount() {
+    return Object.keys(player.guns).length;
+  }
+
+  function removeCurrentGunIfNeeded() {
+    const gunNames = Object.keys(player.guns);
+
+    // Nothing to remove
+    if (gunNames.length <= 1) return;
+
+    // If holding pistol AND have another gun → remove pistol
+    if (
+      player.currentGun.name === 'Pistol' &&
+      gunNames.length >= MAX_GUNS
+    ) {
+      delete player.guns['Pistol'];
+
+      // Switch to any remaining gun
+      const next = Object.keys(player.guns)[0];
+      player.currentGun = player.guns[next];
+      return;
+    }
+
+    // Otherwise remove the currently held gun
+    delete player.guns[player.currentGun.name];
+
+    // Fallback to pistol or first available gun
+    player.currentGun =
+      player.guns['Pistol'] ??
+      player.guns[Object.keys(player.guns)[0]];
+  }
+
+
+
+  function handleZombieStuck(z, dt) {
+    const dx = z.x - z.lastX;
+    const dy = z.y - z.lastY;
+    const moved = Math.hypot(dx, dy);
+
+    if (moved < ZOMBIE_STUCK_DIST) {
+      z.stuckTime += dt;
+    } else {
+      z.stuckTime = 0;
+      z.lastX = z.x;
+      z.lastY = z.y;
+    }
+
+    if (z.stuckTime >= ZOMBIE_STUCK_TIME) {
+      const b = z.targetBarrier;
+      if (b && !b.open) {
+        return;
+      }
+      teleportZombieNearPlayer(z);
+      z.stuckTime = 0;
+      z.lastX = z.x;
+      z.lastY = z.y;
+    }
+
+  }
+
+  function teleportZombieNearPlayer(z) {
+    const radius = 15 * 15; // keep your value
+
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.sqrt(Math.random()) * radius;
+
+    const nx = player.x + Math.cos(angle) * dist;
+    const ny = player.y + Math.sin(angle) * dist;
+
+    z.x = clamp(nx, 20, WORLD_WIDTH - 20);
+    z.y = clamp(ny, 20, WORLD_HEIGHT - 20);
+
+    z.lastX = z.x;
+    z.lastY = z.y;
+    z.stuckTime = 0;
+  }
+
+
+
+  function circleRectHit(cx, cy, r, rx, ry, rw, rh) {
+    const x = clamp(cx, rx, rx + rw);
+    const y = clamp(cy, ry, ry + rh);
+    const dx = cx - x;
+    const dy = cy - y;
+    return dx * dx + dy * dy <= r * r;
+  }
+
+
+
+  // Game constants
+  function W() { return canvas.width; }
+  function H() { return canvas.height; }
+  const TWO_PI = Math.PI * 2;
+
+  const rnd = (min, max) => Math.random() * (max - min) + min;
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  const dist2 = (a,b) => { const dx = a.x - b.x, dy = a.y - b.y; return dx*dx + dy*dy; };
+
+  const MAX_GUNS = 2;
+
+  // Player
+  const player = {
+    x: WIDTH/2, y: HEIGHT/2,
+    speed: 140, // px/s
+    angle: 0,
+    radius: 14,
+    hitsRemaining: 3,
+    hitsMax: 3,
+    lastHitTime: -Infinity,
+    points: 420,
+    currentGun: null,
+    trapDamageImmunityUntil: 0,
+    
+    guns: {},
+    quickRevive: {
+      level: 0,
+      baseCost: 1500,
+      cost: 1500,
+      maxLevel: 3,
+      regenMultiplier: 1
+    },
+    downed: false,
+    reviveTimer: 0,
+    reviveDuration: 5,
+    zombieFearTimer: 0,
+    perks: {
+      juggernog:false, speedCola:false, doubleTap:false, staminUp:false, quickRevive:false, quickReviveUsed:false
+    },
+    alive: true,
+    repairing: { barrier:null, timer:0, ticks:0 } // hold-E repair state
+  };
+
+  // Weapons
+  function makeGun(name, {damage, fireRate, mag, reserve, reload, speed, auto=true, cost=0}) {
+  return {
+    name,
+    damage,
+    fireRate,
+    mag,
+    magMax: mag,
+    reserve,
+    reserveMax: reserve,
+    reload,
+    bulletSpeed: speed,
+    auto,
+    cooldown: 0,
+    reloading: false,
+    reloadTimer: 0,
+    cost,
+
+    // ===== ADD THESE =====
+    upgradeLevel: 0,
+    baseDamage: damage,
+    baseReserveMax: reserve,
+    upgradeCost: 5000
+  };
+}
+
+
+
+
+  const pistol = makeGun('Pistol', { damage: 20, fireRate: 4, mag: 10, reserve: 60, reload: 1.5, speed: 550, auto:false, cost:0 });
+  const smg    = makeGun('SMG',    { damage: 28, fireRate: 10, mag: 30, reserve: 180, reload: 2.5, speed: 650, auto:true, cost:750 });
+  const ar     = makeGun('AR',     { damage: 32, fireRate: 6, mag: 25, reserve: 150, reload: 3.0, speed: 700, auto:true, cost:900 });
+  const shotgun = makeGun('SHOTGUN',{ damage: 50, fireRate: 1, mag: 8,  reserve: 48,  reload: 5.5, speed: 600, auto:false, cost:1000 });
+  const m1sus = makeGun('M1 SUS',   { damage: 45, fireRate: 2, mag: 10,  reserve: 50,  reload: 3.0, speed: 750, auto:false, cost:1000 });
+  const lmg    = makeGun('LMG',    { damage: 35, fireRate: 8, mag: 60, reserve: 240, reload: 4.5, speed: 700, auto:true, cost:0 });
+  const sniper = makeGun('Sniper', { damage: 120, fireRate: 1.5, mag: 5, reserve: 30, reload: 2.2, speed: 1000, auto:false, cost:0 });
+
+  const deathMachine = makeGun('Death Machine', { damage: 999, fireRate: 12, mag: Infinity, reserve: Infinity, reload: 0, speed: 800, auto:true, cost:0 });
+
+  const WALL_BUY_GUNS = {
+    PISTOL: pistol,
+    SMG: smg,
+    AR: ar,
+    SHOTGUN: shotgun,
+    SNIPER: sniper,
+    // 🔥 NEW WALL BUY
+    "M1 SUS": structuredClone(MYSTERY_BOX_GUNS.find(g => g.name === 'M1 SUS'))
+  };
+
+  // Power-ups
+  const POWER_TYPES = ['INSTA', 'NUKE', '2X', 'MAX', 'CARPENTER', 'DEATH'];
+  const powerColors = {
+    'INSTA':'#e74c3c',
+    'NUKE':'#f1c40f',
+    '2X':'#9b59b6',
+    'MAX':'#3498db',
+    'CARPENTER':'#2ecc71',
+    'DEATH':'#95a5a6'
+  };
+
+  const activePowers = {
+    insta:false, double:false, death:false,
+    timers: { insta:0, double:0, death:0 }
+  };
+
+  // Round / Zombie
+  
+  let aliveCount = 0;
+
+  // Round cooldown state
+  let round = 1;
+  let roundCooldown = false;
+  let roundCooldownEnd = 0;
+  let showRoundBanner = false;
+  let roundBannerText = '';
+
+
+  // Spawn control (batch spawning)
+  let spawnRemaining = 0;
+  let spawnTimer = 0;
+
+  // Map: barriers (rectangles) across corridors
+
+
+
+
+  // ADD THIS HERE
+  function rectCircleCollide(cx, cy, r, rx, ry, rw, rh) {
+    const closestX = clamp(cx, rx, rx + rw);
+    const closestY = clamp(cy, ry, ry + rh);
+    const dx = cx - closestX;
+    const dy = cy - closestY;
+    return (dx * dx + dy * dy) <= r * r;
+  }
+
+
+
+  function rollDropRarity(round) {
+    let roll = Math.random();
+
+    // Optional: better drops slightly more likely later rounds
+    const roundBoost = Math.min(round * 0.005, 0.15);
+    roll -= roundBoost;
+
+    let acc = 0;
+    for (const [rarity, data] of Object.entries(DROP_RARITIES)) {
+      acc += data.chance;
+      if (roll <= acc) return rarity;
+    }
+    return null;
+  }
+
+
+  // barrier object: {x,y,w,h,hp,hpMax,open:bool}
+  function addBarrier(x,y,w,h) {
+    barriers.push({x,y,w,h,hp:100, hpMax:100, open:false});
+  }
+  
+
+  // Player init
+  player.guns[pistol.name] = {...pistol};
+  player.currentGun = player.guns[pistol.name];
+
+  // Input
+    const keys = {};
+    const mouse = { x: WIDTH/2, y: HEIGHT/2, down:false };
+
+
+    window.addEventListener('keydown', (e) => {
+      const key = e.key.toLowerCase();
+
+      if (e.key.toLowerCase() === 'r') {
+        startReload(player.currentGun);
+      }
+
+      // ⏸ PAUSE TOGGLE (ESC)
+      if (key === 'escape') {
+        gamePaused = !gamePaused;
+
+        // ✅ STEP 5: PREVENT STUCK KEYS (THIS IS WHAT YOU ASKED ABOUT)
+        for (const k in keys) keys[k] = false;
+        mouse.down = false;
+
+        return; // stop input processing
+      }
+
+      // 🔫 WEAPON SWAP
+      if (key === '1') {
+        swapGun();
+        return;
+      }
+
+      keys[key] = true;
+    });
+
+
+    window.addEventListener('keyup', (e)=> { keys[e.key.toLowerCase()] = false; });
+    canvas.addEventListener('mousemove', (e)=> {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = e.clientX - rect.left;
+      mouse.y = e.clientY - rect.top;
+    });
+    canvas.addEventListener('mousedown', ()=> { mouse.down = true; });
+    window.addEventListener('mouseup', ()=> { mouse.down = false; });
+
+    function startRoundCooldown() {
+      roundCooldown = true;
+      roundCooldownEnd = now + 15000;
+
+      showRoundBanner = true;
+      roundBannerText = `ROUND ${round}`;
+      roundBannerStart = performance.now();
+    }
+    
+    function startReload(gun) {
+      if (!gun) return;
+      if (gun.reloading) return;
+      if (gun.mag >= gun.magMax) return;
+      if (gun.reserve <= 0) return;
+
+      gun.reloading = true;
+
+      const reloadMult = player.perks.speedCola ? 0.6 : 1;
+      gun.reloadTimer = gun.reload * reloadMult;
+
+    }
+
+
+
+    function swapGun() {
+      const gunNames = Object.keys(player.guns);
+
+      // No swap if only one gun
+      if (gunNames.length <= 1) return;
+
+      const currentIndex = gunNames.indexOf(player.currentGun.name);
+      const nextIndex = (currentIndex + 1) % gunNames.length;
+
+      player.currentGun = player.guns[gunNames[nextIndex]];
+    }
+
+
+    function isInsideWall(x, y) {
+    for (const w of walls) {
+      const left   = w.x - w.w / 2;
+      const right  = w.x + w.w / 2;
+      const top    = w.y - w.h / 2;
+      const bottom = w.y + w.h / 2;
+
+      if (x > left && x < right && y > top && y < bottom) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function clampToMap(x, y) {
+    return {
+      x: clamp(x, 20, WORLD_WIDTH - 20),
+      y: clamp(y, 20, WORLD_HEIGHT - 20)
+    };
+  }
+
+
+  function randomNearPlayer(radius = 50) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist  = Math.random() * radius;
+    return clampToMap(
+      player.x + Math.cos(angle) * dist,
+      player.y + Math.sin(angle) * dist
+   );
+  }
+
+  
+
+  function drawRoundBanner() {
+    if (!showRoundBanner) return;
+
+    const elapsed = performance.now() - roundBannerStart;
+    if (elapsed > ROUND_BANNER_DURATION) {
+      showRoundBanner = false;
+      return;
+    }
+
+    const alpha = 1 - elapsed / ROUND_BANNER_DURATION;
+
+    // 🔥 RESET TRANSFORM (THIS IS THE FIX)
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 56px system-ui';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.shadowColor = 'black';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 2;
+
+    // ✅ TRUE TOP-CENTER OF SCREEN
+    ctx.fillText(
+      roundBannerText,
+      canvas.width / 2,
+      80
+    );
+
+    ctx.restore();
+  }
+
+
+
+  function resolveCircleRotatedRectCollision(entity, rect) {
+    const rot = (rect.rotation || 0) * Math.PI / 180;
+
+  // Translate to rect space
+    const dx = entity.x - rect.x;
+    const dy = entity.y - rect.y;
+
+    const cos = Math.cos(-rot);
+    const sin = Math.sin(-rot);
+
+    const lx = dx * cos - dy * sin;
+    const ly = dx * sin + dy * cos;
+
+    const hw = rect.w / 2;
+    const hh = rect.h / 2;
+    const r = entity.radius;
+
+    // Find overlap in local space
+    const overlapX = hw + r - Math.abs(lx);
+    const overlapY = hh + r - Math.abs(ly);
+
+    if (overlapX <= 0 || overlapY <= 0) return;
+
+    let pushX = 0;
+    let pushY = 0;
+
+    // Resolve on smallest axis
+    if (overlapX < overlapY) {
+      pushX = lx > 0 ? overlapX : -overlapX;
+    } else {
+      pushY = ly > 0 ? overlapY : -overlapY;
+    }
+
+    // Rotate push vector back to world space
+    const wx = pushX * cos + pushY * -sin;
+    const wy = pushX * sin + pushY * cos;
+
+    entity.x += wx;
+    entity.y += wy;
+  }
+
+
+
+  function resolveCircleRotatedRectCollision(entity, rect){
+    const rx = rect.x - rect.w / 2;
+    const ry = rect.y - rect.h / 2;
+
+    if (!rectCircleCollide(entity.x, entity.y, entity.radius, rx, ry, rect.w, rect.h)) {
+      return;
+    }
+
+    // Push entity out on smallest axis
+    const dx = entity.x - rect.x;
+    const dy = entity.y - rect.y;
+
+    const overlapX = rect.w / 2 + entity.radius - Math.abs(dx);
+    const overlapY = rect.h / 2 + entity.radius - Math.abs(dy);
+
+    if (overlapX < overlapY) {
+      entity.x += dx > 0 ? overlapX : -overlapX;
+    } else {
+      entity.y += dy > 0 ? overlapY : -overlapY;
+    }
+  }
+
+
+  function bulletHitsRect(b, r) {
+    const cx = clamp(b.x, r.x, r.x + r.w);
+    const cy = clamp(b.y, r.y, r.y + r.h);
+    const dx = b.x - cx;
+    const dy = b.y - cy;
+    return (dx * dx + dy * dy) <= (b.radius * b.radius);
+  }
+
+
+  
+
+
+  
+  // ---------- NEW: Circle collision helpers ----------
+  function resolveCircleCollision(a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dist = Math.hypot(dx, dy);
+    const minDist = (a.r || a.radius) + (b.r || b.radius);
+
+    if (dist === 0 || dist >= minDist) return;
+
+    const overlap = minDist - dist;
+    const nx = dx / dist;
+    const ny = dy / dist;
+
+    // Push both apart evenly
+    a.x -= nx * overlap * 0.5;
+    a.y -= ny * overlap * 0.5;
+    b.x += nx * overlap * 0.5;
+    b.y += ny * overlap * 0.5;
+  }
+// --------------------------------------------------
+
+
+  // Actions
+  function tryBuyGun(gun, cost) {
+    if (player.points >= cost) {
+      player.points -= cost;
+      if (!player.guns[gun.name]) player.guns[gun.name] = {...gun};
+      player.currentGun = player.guns[gun.name];
+    }
+  }
+
+  function tryBuyAmmoOrGun(gun, cost) {
+    const owned = !!player.guns[gun.name];
+
+  // ---------- BUY NEW GUN ----------
+    if (!owned) {
+      if (player.points < cost) return;
+
+    // Enforce max guns
+      if (ownedGunCount() >= MAX_GUNS) {
+        removeCurrentGunIfNeeded();
+      }
+
+      player.points -= cost;
+      player.guns[gun.name] = structuredClone(gun);
+      player.currentGun = player.guns[gun.name];
+      return;
+    }
+
+    // ---------- AMMO REFILL ----------
+    const g = player.guns[gun.name];
+
+    let ammoCost = Math.floor(cost / 2);
+
+    // 🔥 Increase ammo cost if gun is upgraded
+    if (g.upgradeLevel > 0) {
+      ammoCost = Math.floor(ammoCost * 3.5);
+    }
+
+    if (player.points < ammoCost) return;
+
+    player.points -= ammoCost;
+
+    if (g.mag !== Infinity) {
+      g.mag = g.magMax;
+      g.reserve = g.reserveMax;
+    }
+  }
+
+
+
+
+
+  function tryMysteryBox(cost) {
+    const box = mysteryBoxes[activeMysteryIndex];
+    if (!box || !box.active) return;
+    if (player.points < cost) return;
+
+    player.points -= cost;
+    mysterySpinCount++;
+
+    const pick =
+      MYSTERY_BOX_GUNS[Math.floor(Math.random() * MYSTERY_BOX_GUNS.length)];
+
+    const alreadyOwned = !!player.guns[pick.name];
+
+  // 🔒 ENFORCE MAX GUNS
+    if (!alreadyOwned && ownedGunCount() >= MAX_GUNS) {
+      removeCurrentGunIfNeeded();
+    }
+
+  // Give gun if not owned
+    if (!player.guns[pick.name]) {
+      player.guns[pick.name] = structuredClone(pick);
+    }
+
+    player.currentGun = player.guns[pick.name];
+
+  // ===== MOVE CHECK =====
+    if (mysterySpinCount >= MYSTERY_MOVE_SPINS) {
+      mysterySpinCount = 0;
+
+      if (Math.random() < MYSTERY_MOVE_CHANCE) {
+        moveMysteryBox();
+      }
+    }
+  }
+
+
+
+  function moveMysteryBox() {
+    if (mysteryBoxes.length <= 1) return;
+
+    const prevIndex = activeMysteryIndex;
+
+    // 🔥 HARD RESET — only ONE box may be active
+    for (const b of mysteryBoxes) {
+      b.active = false;
+    }
+
+    // build list of valid targets (not the previous one)
+    const candidates = mysteryBoxes
+      .map((_, i) => i)
+      .filter(i => i !== prevIndex);
+
+    // guaranteed different box
+    const newIndex =
+      candidates[Math.floor(Math.random() * candidates.length)];
+
+    mysteryBoxes[newIndex].active = true;
+    activeMysteryIndex = newIndex;
+  }
+
+
+
+
+
+
+
+  function tryBuyPerk(perk, cost) {
+    /* PERK GUARD */
+    if (player.perks[perk]) return;
+
+  // ===== QUICK REVIVE SPECIAL LOGIC =====
+    if (perk === 'quickRevive') {
+
+    // Init tracking if missing
+    if (!player.quickRevive) {
+      player.quickRevive = {
+        level: 0,
+        cost: cost,
+        maxLevel: 3,
+        regenMultiplier: 1
+      };
+    }
+
+    if (player.quickRevive.level >= player.quickRevive.maxLevel) return;
+    if (player.points < player.quickRevive.cost) return;
+
+    player.points -= player.quickRevive.cost;
+    player.quickRevive.level++;
+
+    // Each level doubles regen speed (2x, 4x, 6x)
+    player.quickRevive.regenMultiplier = 1 + player.quickRevive.level;
+
+    // Increase price by 15%
+    player.quickRevive.cost = Math.floor(player.quickRevive.cost * 1.15);
+
+    // Mark perk as owned (for UI display)
+    player.perks.quickRevive = true;
+      player.perks.quickReviveUsed = false;
+    return;
+  }
+
+  // ===== NORMAL PERK LOGIC =====
+  if (player.points < cost) return;
+  if (player.perks[perk]) return;
+
+  player.points -= cost;
+  player.perks[perk] = true;
+
+  if (perk === 'juggernog') {
+    player.hitsMax = 5;
+    player.hitsRemaining = clamp(player.hitsRemaining + 2, 0, player.hitsMax);
+
+  } 
+    else if (perk === 'speedCola') {
+    for (const g of Object.values(player.guns)) g.reload *= 0.6;
+
+  } 
+    else if (perk === 'doubleTap') {
+    for (const g of Object.values(player.guns)) {
+      g.damage *= 1.15;
+      g.fireRate *= 1.15;
+    }
+
+  }   
+    else if (perk === 'staminUp') {
+    player.speed *= 1.5;
+    }
+  }
+
+  function drawPauseOverlay() {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 48px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2);
+
+    ctx.font = '16px system-ui';
+    ctx.fillText('Press ESC to resume', canvas.width / 2, canvas.height / 2 + 50);
+
+    ctx.restore();
+  }
+
+
+
+  // Zombie spawning
+  function roundZombieHP(r) {
+    const base = 100; // base HP round 1
+    return Math.floor(base * Math.pow(1.05, r-1));
+  }
+  function startRoundSpawns() {
+    const count = 6 + round*2;     // total per round
+    spawnRemaining = count;         // number left to spawn
+    spawnTimer = 0;                 // spawn immediately first batch
+  }
+
+
+  // ---------- Rectangle ↔ Circle collision helper ----------
+  function rectCircleCollide(cx, cy, r, rx, ry, rw, rh) {
+    const closestX = clamp(cx, rx, rx + rw);
+    const closestY = clamp(cy, ry, ry + rh);
+    const dx = cx - closestX;
+    const dy = cy - closestY;
+    return (dx * dx + dy * dy) <= r * r;
+  }
+
+
+  function getActiveZombieSpawns() {
+    return zombieSpawns.filter(s => {
+      if (!s.doorId) return true; // always active
+
+      const door = doors.find(d => d.id === s.doorId);
+      return door && door.open;
+    });
+  }
+
+
+  function spawnBatch(hp, batchCount) {
+    const activeSpawns = zombieSpawns.filter(isSpawnUnlocked);
+    if (activeSpawns.length === 0) return;
+
+    for (let i = 0; i < batchCount; i++) {
+      const s = activeSpawns[Math.floor(Math.random() * activeSpawns.length)];
+
+      const barrier =
+        barriers.length > 0
+          ? barriers[Math.floor(Math.random() * barriers.length)]
+          : null;
+
+      zombies.push({
+        x: s.x,
+        y: s.y,
+        r: 12,
+        speed: rnd(30, 55),
+        hp,
+        hpMax: hp,
+        targetBarrier: barrier,
+        attackBarrierDps: 12,
+        barrierHitCooldown: 1.5,
+        playerHitCooldown: 0,
+        lastX: s.x,
+        lastY: s.y,
+        stuckTime: 0,
+        alive: true
+      });
+    }
+  }
+
+
+  function tryUpgradeCurrentGun() {
+    const g = player.currentGun;
+    if (!g) return;
+
+    if (player.points < g.upgradeCost) return;
+
+    player.points -= g.upgradeCost;
+    upgradeGun(g);
+  }
+
+
+  // Bullets
+  function shoot() {
+    const g = player.currentGun;
+    if (!g) return;
+
+    // ⛔ block firing while reloading
+    if (g.reloading) return;
+
+    // 🔁 auto-reload when empty (DO NOT fire)
+    if (g.mag <= 0 && g.mag !== Infinity) {
+      if (g.reserve > 0) startReload(g);
+      return;
+    }
+
+    // ⏱️ fire rate cooldown
+    if (g.cooldown > 0) return;
+
+    const angle = player.angle;
+    const speed = g.bulletSpeed;
+
+    bullets.push({
+      x: player.x,
+      y: player.y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      damage: g.damage,
+      life: 1.2,
+      radius: 3
+    });
+
+    // 🔫 consume ammo
+    if (g.mag !== Infinity) g.mag--;
+
+    // ⏳ reset fire cooldown
+    g.cooldown = 1 / g.fireRate;
+  }
+
+
+
+
+  // Power-up drops
+  function tryDropPower(x,y) {
+    const chance = 0.02; // 12% per kill
+    if (Math.random() > chance) return;
+    const weights = [
+      {t:'INSTA', w:1.0},
+      {t:'NUKE', w:0.6},
+      {t:'2X', w:1.0},
+      {t:'MAX', w:0.9},
+      {t:'CARPENTER', w:0.8},
+      {t:'DEATH', w:0.7}
+    ];
+    const total = weights.reduce((a,b)=>a+b.w,0);
+    let r = Math.random() * total;
+    let pick = 'INSTA';
+    for (const w of weights) {
+      if ((r -= w.w) <= 0) { pick = w.t; break; }
+    }
+    powerDrops.push({
+      type: pick, x, y, created: now, ttl: 30
+    });
+  }
+
+  function pickupPower(p) {
+    if (p.type === 'INSTA') {
+      activePowers.insta = true;
+      activePowers.timers.insta = now + 30_000;
+    } else if (p.type === '2X') {
+      activePowers.double = true;
+      activePowers.timers.double = now + 30_000;
+    } else if (p.type === 'DEATH') {
+      activePowers.death = true;
+      activePowers.timers.death = now + 30_000;
+      player.prevGunBeforeDeath = player.currentGun;
+      player.currentGun = deathMachine;
+    } else if (p.type === 'NUKE') {
+      for (const z of zombies) if (z.alive) { z.alive=false; awardKill(); tryDropPower(z.x,z.y); }
+    } else if (p.type === 'MAX') {
+      for (const g of Object.values(player.guns)) {
+        if (g.mag !== Infinity) { g.mag = g.magMax; g.reserve = g.reserveMax; }
+      }
+    } else if (p.type === 'CARPENTER') {
+      for (const b of barriers) { b.hp = b.hpMax; b.open = false; }
+    }
+  }
+
+  function tryBuyDoor(door) {
+    if (door.open) return;
+    if (player.points < door.cost) return;
+
+    // Pay
+    player.points -= door.cost;
+
+    // Open the door
+    door.open = true;
+
+    // 🔴 REMOVE THE INTERACT CIRCLE
+    for (let i = interacts.length - 1; i >= 0; i--) {
+      const it = interacts[i];
+      if (it.type === 'door' && it.x === door.x && it.y === door.y) {
+        interacts.splice(i, 1);
+        break;
+      }
+    }
+  }
+
+  
+  
+
+  // Points
+  function awardHit() {
+    let pts = 5;
+    if (activePowers.double) pts *= 2;
+    player.points += pts;
+  }
+  function awardKill() {
+    let pts = 50;
+    if (activePowers.double) pts *= 2;
+    player.points += pts;
+  }
+  function awardRepair() {
+    let pts = 10;
+    if (activePowers.double) pts *= 2;
+    player.points += pts;
+  }
+
+  // Barrier repair (single tick)
+    function repairBarrierTick(b) {
+    const add = Math.ceil(b.hpMax * 0.10); // 10%
+    const before = b.hp;
+
+  // Allow rebuild from zero
+    b.hp = clamp(b.hp + add, 0, b.hpMax);
+
+    if (b.hp > before) {
+      awardRepair();
+    }
+
+  // Barrier is solid again as soon as HP > 0
+    if (b.hp > 0) {
+      b.open = false;
+    }
+  }
+
+
+
+  function updateCamera() {
+    const halfW = camera.w / (2 * camera.zoom);
+    const halfH = camera.h / (2 * camera.zoom);
+
+    camera.x = player.x - halfW;
+    camera.y = player.y - halfH;
+
+    // Clamp camera so it never shows outside the world
+    camera.x = clamp(camera.x, 0, WORLD_WIDTH - halfW * 2);
+    camera.y = clamp(camera.y, 0, WORLD_HEIGHT - halfH * 2);
+  }
+
+
+  // Interaction (E keydown): prioritize single repair tick, else buy
+  function interact() {
+    // 1️⃣ Barrier repair has priority
+    const nb = nearestDamagedBarrier();
+    if (nb) {
+      repairBarrierTick(nb);
+      return;
+    }
+
+    // 2️⃣ Only allow interacts within range
+    const INTERACT_RANGE = 60;
+
+    let nearest = null;
+    let nd = INTERACT_RANGE;
+
+    for (const i of interacts) {
+      const d = Math.hypot(player.x - i.x, player.y - i.y);
+      if (d < nd) {
+        nd = d;
+        nearest = i;
+      }
+    }
+
+    if (nearest) {
+      nearest.action(nearest);
+    }
+  }
+
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'r') {
+      startReload(player.currentGun);
+    }
+  });
+
+
+  window.addEventListener('keydown', (e)=>{
+    const k = e.key.toLowerCase();
+    if (k === 'e') interact();
+    
+
+  });
+
+  function nearestDamagedBarrier() {
+    let best = null;
+    let bd = Infinity;
+
+    for (const b of barriers) {
+      if (b.hp >= b.hpMax) continue; // only skip FULL barriers
+
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2;
+      const d = Math.hypot(player.x - cx, player.y - cy);
+
+      if (d < 60 && d < bd) {
+        bd = d;
+        best = b;
+      }
+    }
+    return best;
+  }
+
+
+  for (const d of doors) {
+    if (!d.open) {
+      resolveCircleWallCollision(player, d);
+      for (const z of zombies) resolveCircleWallCollision(z, d);
+    }
+  }
+
+
+  function resolveCircleWallCollision(entity, wall) {
+    const r = entity.r || entity.radius || 12;
+
+  // Convert wall from center-based to min/max
+    const left   = wall.x - wall.w / 2;
+    const right  = wall.x + wall.w / 2;
+    const top    = wall.y - wall.h / 2;
+    const bottom = wall.y + wall.h / 2;
+
+    const closestX = clamp(entity.x, left, right);
+    const closestY = clamp(entity.y, top, bottom);
+
+    const dx = entity.x - closestX;
+    const dy = entity.y - closestY;
+
+    const distSq = dx * dx + dy * dy;
+
+    if (distSq < r * r) {
+      const dist = Math.sqrt(distSq) || 0.0001;
+      const overlap = r - dist;
+
+      entity.x += (dx / dist) * overlap;
+      entity.y += (dy / dist) * overlap;
+    }
+  }
+
+
+  // ---------- NEW: Collision helpers ----------
+  // Prevent circular entities from entering solid (unbroken) barrier rectangles
+  function resolveEntityBarrierCollision(entity, barrier) {
+    if (barrier.open) return; // pass-through when broken
+    const e = entity;
+    const r = e.r || e.radius || 12;
+    // Inflate barrier by entity radius for simple AABB collision
+    const bx = barrier.x - r;
+    const by = barrier.y - r;
+    const bw = barrier.w + 2*r;
+    const bh = barrier.h + 2*r;
+
+    // If entity center is inside inflated rect, push to nearest edge
+    if (e.x >= bx && e.x <= bx + bw && e.y >= by && e.y <= by + bh) {
+      // Distances to edges
+      const leftDist   = Math.abs(e.x - bx);
+      const rightDist  = Math.abs((bx + bw) - e.x);
+      const topDist    = Math.abs(e.y - by);
+      const bottomDist = Math.abs((by + bh) - e.y);
+      const minDist = Math.min(leftDist, rightDist, topDist, bottomDist);
+
+      if (minDist === leftDist) {
+        e.x = bx;
+      } else if (minDist === rightDist) {
+        e.x = bx + bw;
+      } else if (minDist === topDist) {
+        e.y = by;
+      } else {
+        e.y = by + bh;
+      }
+    }
+  }
+
+
+    function rectIntersect(a, b) {
+      return (
+        a.x - a.w / 2 < b.x + b.w / 2 &&
+        a.x + a.w / 2 > b.x - b.w / 2 &&
+        a.y - a.h / 2 < b.y + b.h / 2 &&
+        a.y + a.h / 2 > b.y - b.h / 2
+      );
+    }
+
+
+    function rayHitsWall(x, y, dx, dy, dist) {
+      const steps = 6;
+      const step = dist / steps;
+
+      for (let i = 1; i <= steps; i++) {
+        const px = x + dx * step * i;
+        const py = y + dy * step * i;
+
+        for (const w of walls) {
+          const left   = w.x - w.w / 2;
+          const right  = w.x + w.w / 2;
+          const top    = w.y - w.h / 2;
+          const bottom = w.y + w.h / 2;
+
+          if (px > left && px < right && py > top && py < bottom) {
+            return true;
+          }
+        }
+
+        for (const b of barriers) {
+          if (b.open) continue;
+          if (px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
+
+    function resolvePlayerBarrierCollision(player, barrier) {
+      const r = player.radius;
+
+      // Closest point on rectangle to player center
+      const closestX = clamp(player.x, barrier.x, barrier.x + barrier.w);
+      const closestY = clamp(player.y, barrier.y, barrier.y + barrier.h);
+
+      const dx = player.x - closestX;
+      const dy = player.y - closestY;
+
+      const distSq = dx * dx + dy * dy;
+
+      // If overlapping
+      if (distSq < r * r) {
+        const dist = Math.sqrt(distSq) || 0.0001;
+        const overlap = r - dist;
+
+        // Push player out along collision normal
+        player.x += (dx / dist) * overlap;
+        player.y += (dy / dist) * overlap;
+      }
+    }
+
+    function resolveAllBarrierCollisionsForEntity(entity, canPassWhenOpen) {
+      for (const b of barriers) {
+        if (b.open && canPassWhenOpen) continue;
+
+        const r = entity.r || entity.radius || 12;
+
+        const closestX = clamp(entity.x, b.x, b.x + b.w);
+        const closestY = clamp(entity.y, b.y, b.y + b.h);
+
+        const dx = entity.x - closestX;
+        const dy = entity.y - closestY;
+
+        const distSq = dx * dx + dy * dy;
+        if (distSq < r * r) {
+          const dist = Math.sqrt(distSq) || 0.0001;
+          const overlap = r - dist;
+
+          entity.x += (dx / dist) * overlap;
+          entity.y += (dy / dist) * overlap;
+        }
+
+        for (const z of zombies) {
+          for (const b of barriers) {
+            if (!b.open) {
+              resolveCircleRotatedRectCollision(zombie, b);
+            }
+          }
+        }
+
+
+        for (const b of barriers) {
+          if (!b.open) {
+            resolveCircleRotatedRectCollision(player, b);
+          }
+        }
+
+      }
+    }
+
+    function clampCamera() {
+      const halfW = camera.w / (2 * camera.zoom);
+      const halfH = camera.h / (2 * camera.zoom);
+
+      camera.x = Math.max(halfW, Math.min(WORLD_WIDTH - halfW, camera.x));
+      camera.y = Math.max(halfH, Math.min(WORLD_HEIGHT - halfH, camera.y));
+}
+
+
+  function maybeDropPowerUp(x, y) {
+    // Base drop chance (classic zombies feel)
+    if (Math.random() > 0.15) return; // 15% overall drop chance
+
+    const rarity = rollDropRarity(round);
+    if (!rarity) return;
+
+    const pool = DROP_RARITIES[rarity].drops;
+    const type = pool[Math.floor(Math.random() * pool.length)];
+
+    powerDrops.push({
+     x,
+      y,
+      r: 16,
+      type,
+      rarity,
+      spawnTime: performance.now()
+    });
+  }
+
+
+  // -------------------------------------------
+
+
+  
+  // Game loop timing
+  let lastTime = performance.now();
+  let now = lastTime;
+
+  // Start first round
+  startRoundSpawns();
+
+  function update(dt) {
+    // Update player aim
+    const mw = getMouseWorldPos();
+    const mouseWorldX = mouse.x + camera.x;
+    const mouseWorldY = mouse.y + camera.y;
+    const now = performance.now();
+
+    const worldMouse = screenToWorld(mouse.x, mouse.y);
+    player.angle = Math.atan2(worldMouse.y - player.y, worldMouse.x - player.x);
+    
+
+
+    updateReloads(dt);
+
+
+
+    // 🚪 PLAYER vs DOORS
+    for (const d of doors) {
+      if (!d.open) {
+        resolveCircleRotatedRectCollision(player, d);
+      }
+    }
+
+
+    // Zombies vs walls
+    for (const z of zombies) {
+      if (!z.alive) continue;
+
+      for (const d of doors) {
+        if (!d.open) {
+          resolveCircleWallCollision(z, d);
+        }
+      }
+
+
+      for (const w of walls) {
+        resolveCircleWallCollision(z, w);
+      }
+      // 🚪 ZOMBIE vs DOORS
+      for (const d of doors) {
+        if (!d.open) {
+          resolveCircleRotatedRectCollision(z, d);
+        }
+      }
+      handleZombieStuck(z, dt);
+    }
+
+    
+
+    // Player vs walls
+    for (const w of walls) {
+      resolveCircleWallCollision(player, w);
+    }
+
+
+    // Handle round cooldown timer
+    if (roundCooldown && now >= roundCooldownEnd) {
+      roundCooldown = false;
+      showRoundBanner = false;
+      startRoundSpawns();
+    }
+
+    for (const z of zombies) {
+      for (const b of barriers) {
+        if (b.hp <= 0) continue; // only ignore broken barriers
+
+        if (
+          rectCircleCollide(
+          z.x, z.y, z.r,
+          b.x, b.y, b.w, b.h
+          )
+        ) {
+          // PUSH ZOMBIE OUT (same as player logic)
+          const cx = b.x + b.w / 2;
+          const cy = b.y + b.h / 2;
+
+          const dx = z.x - cx;
+          const dy = z.y - cy;
+
+          const overlapX = b.w / 2 + z.r - Math.abs(dx);
+          const overlapY = b.h / 2 + z.r - Math.abs(dy);
+
+          if (overlapX < overlapY) {
+            z.x += dx > 0 ? overlapX : -overlapX;
+          } else {
+            z.y += dy > 0 ? overlapY : -overlapY;
+          }
+
+          // STOP zombie movement when colliding
+          z.blockedByBarrier = b;
+        }
+      }
+    }
+
+    for (const t of zombieTraps) {
+
+      // ⏳ delayed activation
+      if (t.pending && now >= t.activateAt) {
+        t.pending = false;
+        t.active = true;
+        t.activeUntil = now + t.duration * 1000;
+      }
+
+      // ⏱️ auto shutoff → cooldown
+      if (t.active && now >= t.activeUntil) {
+        t.active = false;
+        t.cooldownUntil = now + t.cooldown * 1000;
+        continue;
+      }
+
+      // ⛔ cooldown lock
+      if (now < t.cooldownUntil) continue;
+
+      // ⛔ inactive
+      if (!t.active) continue;
+
+      // 🔥 zombies
+      for (const z of zombies) {
+        if (!z.alive) continue;
+
+        if (
+          circleRectHit(
+            z.x, z.y, z.r,
+            t.x - t.w / 2,
+            t.y - t.h / 2,
+            t.w,
+            t.h
+          )
+        ) {
+          z.alive = false;
+          player.points += 25;
+        }
+      }
+
+  // ☠️ PLAYER DAMAGE FROM TRAP
+  if (
+    circleRectHit(
+     player.x, player.y, player.radius,
+      t.x - t.w / 2,
+      t.y - t.h / 2,
+      t.w,
+      t.h
+    )
+  ) {
+    if (now >= player.trapDamageImmunityUntil) {
+
+      player.trapDamageImmunityUntil = now + 300;
+      player.lastHitTime = now;
+
+      if (player.perks.juggernog) {
+      // 🔥 NEW RULE
+        if (player.hitsRemaining < 5) {
+          player.hitsRemaining = 0; // instant down
+        } else {
+          player.hitsRemaining = 1; // barely survive
+        }
+      } else {
+        player.hitsRemaining = 0;
+      }
+
+      if (player.hitsRemaining <= 0 && !player.downed) {
+        player.downed = true;
+        player.reviveTimer = player.reviveDuration;
+      }
+    }
+  }
+
+
+      }
+
+
+    function updateReloads(dt) {
+      const g = player.currentGun;
+      if (!g || !g.reloading) return;
+
+      g.reloadTimer -= dt;
+
+      if (g.reloadTimer > 0) return;
+
+      const needed = g.magMax - g.mag;
+      const taken = Math.min(needed, g.reserve);
+
+      g.mag += taken;
+      g.reserve -= taken;
+
+      g.reloading = false;
+      g.reloadTimer = 0;
+    }
+
+
+
+    // Downed / revive handling: block movement & shooting, count down timer
+    if (player.downed) {
+      player.reviveTimer = Math.max(0, player.reviveTimer - dt);
+      player.zombieFearTimer = Math.max(0, player.zombieFearTimer - dt);
+      // make zombies back away while downed
+      for (const z of zombies) {
+        if (!z.alive) continue;
+        const dx = z.x - player.x;
+        const dy = z.y - player.y;
+        const len = Math.hypot(dx, dy) || 1;
+        z.x += (dx/len) * z.speed * 1.4 * dt;
+        z.y += (dy/len) * z.speed * 1.4 * dt;
+      }
+      if (player.reviveTimer <= 0) {
+        // Revive only if Quick Revive is owned and not yet consumed
+        if (player.perks.quickRevive && !player.perks.quickReviveUsed) {
+          player.perks.quickRevive = false;
+          player.perks.quickReviveUsed = true;
+          player.downed = false;
+          player.hitsRemaining = player.hitsMax;
+          player.lastHitTime = now;
+        } else {
+          // No Quick Revive: game over and exit the downed state
+          player.alive = false;
+          player.downed = false;
+        }
+      }
+      return;
+    }
+
+    
+    // Movement
+    let vx=0, vy=0;
+    if (keys['w']) vy -= 1;
+    if (keys['s']) vy += 1;
+    if (keys['a']) vx -= 1;
+    if (keys['d']) vx += 1;
+    if (vx !== 0 || vy !== 0) {
+      const len = Math.hypot(vx,vy);
+      vx /= len; vy /= len;
+    }
+    
+
+    //---
+    const speed = player.speed;
+    updateReloads(dt);
+
+    // save previous position (used by collision resolution)
+    player.prevX = player.x;
+    player.prevY = player.y;
+
+    // APPLY MOVEMENT
+    player.x += vx * speed * dt;
+    player.y += vy * speed * dt;
+
+    // CLAMP TO WORLD (not screen)
+    player.x = clamp(player.x, 20, WORLD_WIDTH - 20);
+    player.y = clamp(player.y, 20, WORLD_HEIGHT - 20);
+
+
+    player.x = clamp(player.x, 20, WORLD_WIDTH - 20);
+    player.y = clamp(player.y, 20, WORLD_HEIGHT - 20);
+
+
+    // ---------- NEW: Zombie vs Zombie collision ----------
+    for (let i = 0; i < zombies.length; i++) {
+      const z1 = zombies[i];
+      if (!z1.alive) continue;
+
+      for (let j = i + 1; j < zombies.length; j++) {
+        const z2 = zombies[j];
+        if (!z2.alive) continue;
+
+        resolveCircleCollision(z1, z2);
+      }
+      
+    }
+
+    
+
+    
+
+// ---------------------------------------------------
+
+    // ---------- NEW: Player vs barrier collision ----------
+    for (const b of barriers) {resolvePlayerBarrierCollision(player, b);}
+
+
+    // ------------------------------------------------------
+
+    // Shooting / reload
+    const g = player.currentGun;
+    if (g) {
+      if (g.cooldown > 0) g.cooldown = Math.max(0, g.cooldown - dt);
+      if (mouse.down) {
+        if (g.auto) shoot(); else { shoot(); mouse.down = false; }
+      }
+    }
+
+    // Health regen after 15s no hit
+    const regenDelay = 15000 / player.quickRevive.regenMultiplier;
+
+    if (player.alive && (now - player.lastHitTime) >= regenDelay && player.hitsRemaining < player.hitsMax) {
+      player.hitsRemaining = player.hitsMax;
+    }
+
+
+    // Hold E to repair: 10% per second up to 10 seconds per hold
+    if (keys['e']) {
+      const b = nearestDamagedBarrier();
+
+        if (b && b.hp > 0) {
+          if (player.repairing.barrier !== b) {
+            player.repairing.barrier = b;
+            player.repairing.timer = 0;
+            player.repairing.ticks = 0;
+          }
+
+          player.repairing.timer += dt;
+
+          while (
+            player.repairing.timer >= 1 &&
+            player.repairing.ticks < 10 &&
+            b.hp > 0 &&
+            b.hp < b.hpMax
+          ) {
+            player.repairing.timer -= 1;
+            player.repairing.ticks++;
+            repairBarrierTick(b);
+          }
+        } else {
+          player.repairing.barrier = null;
+          player.repairing.timer = 0;
+          player.repairing.ticks = 0;
+        }
+      }
+
+
+    // Update barriers open state
+    for (const b of barriers) b.open = (b.hp <= 0);
+
+    // Batch spawns
+    if (!roundCooldown && spawnRemaining > 0) {
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        const batch = Math.min(spawnRemaining, Math.floor(rnd(2,4)));
+        spawnBatch(roundZombieHP(round), batch);
+        spawnRemaining -= batch;
+        spawnTimer = rnd(1.0, 2.5);
+      }
+    }
+
+    // Update zombies
+
+
+    
+
+
+  
+
+    aliveCount = 0;
+    for (const z of zombies) {
+      if (!z.alive) continue;
+      aliveCount++;
+
+      // Target barrier center if intact on their side; else player
+      // ---------- Zombie targeting ----------
+      let targetX = player.x;
+      let targetY = player.y;
+
+      // Distance to player
+      const dxp = player.x - z.x;
+      const dyp = player.y - z.y;
+      const distPlayer = Math.hypot(dxp, dyp);
+
+      // Assume player by default
+      let chasingPlayer = true;
+
+      const b = z.targetBarrier;
+      if (b && !b.open) {
+        const isLeft = (b.x < WIDTH / 2);
+        const zombieLeftSide =
+          (isLeft && z.x < b.x) ||
+          (!isLeft && z.x > (b.x + b.w));
+
+        if (zombieLeftSide) {
+          const bx = b.x + b.w / 2;
+          const by = clamp(z.y, b.y, b.y + b.h);
+          const distBarrier = Math.hypot(z.x - bx, z.y - by);
+
+          // 🧠 DECISION:
+          // If barrier is closer than player → target barrier
+          if (distBarrier < distPlayer) {
+            chasingPlayer = false;
+            targetX = bx;
+            targetY = by;
+
+            // ----- Barrier attack logic -----
+            if (distBarrier <= 22) {
+              z.blockedByBarrier = b;
+
+              z.barrierHitCooldown -= dt;
+              if (z.barrierHitCooldown <= 0) {
+                b.hp -= z.attackBarrierDps;
+                z.barrierHitCooldown = 1.5;
+
+                if (b.hp <= 0) {
+                  b.hp = 0;
+                  b.open = true;
+                  z.blockedByBarrier = null;
+                }
+              }
+
+        // Stop movement ONLY when actually attacking barrier
+           z.skipMove = true;
+            }
+          }
+       }
+      }
+
+      // ---------- Zombie Fear (unchanged) ----------
+      if (player.zombieFearTimer > 0) {
+        const dx = z.x - player.x;
+        const dy = z.y - player.y;
+        const len = Math.hypot(dx, dy) || 1;
+        z.x += (dx / len) * z.speed * dt;
+        z.y += (dy / len) * z.speed * dt;
+        continue;
+      }
+
+      // ---------- Move toward chosen target ----------
+      if (!z.skipMove) {
+        const dx = targetX - z.x;
+        const dy = targetY - z.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist > 0) {
+          z.x += (dx / dist) * z.speed * dt;
+          z.y += (dy / dist) * z.speed * dt;
+        }
+      }
+
+      z.skipMove = false;
+
+
+      resolveCircleCollision(player, z);
+
+      // ---------- NEW: Zombie vs barrier collision ----------
+    if (z.blockedByBarrier) {
+      z.barrierHitCooldown -= dt;
+
+      if (z.barrierHitCooldown <= 0) {
+        z.blockedByBarrier.hp -= z.attackBarrierDps;
+        z.barrierHitCooldown = 1.5;
+
+        if (z.blockedByBarrier.hp <= 0) {
+          z.blockedByBarrier.hp = 0;
+          z.blockedByBarrier.open = true;
+        }
+      }
+
+      continue; // DO NOT MOVE THROUGH
+    }
+
+      // ------------------------------------------------------
+
+      // If near player, deal hits intermittently
+    const playerReach = 26;
+    const d2p = Math.hypot(z.x - player.x, z.y - player.y);
+
+    if (d2p <= playerReach) {
+        z.playerHitCooldown -= dt;
+
+    if (z.playerHitCooldown <= 0) {
+        player.lastHitTime = now;
+        // ⛔ ignore zombie damage briefly after trap hit
+        if (now < player.trapDamageImmunityUntil) continue;
+
+        player.hitsRemaining--;
+
+        z.playerHitCooldown = 1.0;
+
+    if (player.hitsRemaining <= 0 && !player.downed) {
+        if (player.perks.quickRevive && !player.perks.quickReviveUsed) {
+          player.downed = true;
+          player.reviveTimer = player.reviveDuration;
+          player.zombieFearTimer = 5;
+        } else {
+          player.alive = false;
+          player.downed = false;
+        }
+      }
+        }
+      }
+    }
+
+    // Round progression
+    // Round progression
+    if (aliveCount === 0 && spawnRemaining === 0 && !roundCooldown) {
+      round += 1;
+      startRoundCooldown();
+    }
+
+
+    //----------------
+    camera.x = clamp(
+      player.x - camera.w / 2,
+      0,
+      WORLD_WIDTH - camera.w
+    );
+
+    camera.y = clamp(
+      player.y - camera.h / 2,
+      0,
+      WORLD_HEIGHT - camera.h
+    );
+
+    // ---------- BULLETS ----------
+    for (const bullet of bullets) {
+      bullet.x += bullet.vx * dt;
+      bullet.y += bullet.vy * dt;
+      bullet.life -= dt;
+    }
+
+    // ---------- BULLET vs ZOMBIE DAMAGE ----------
+    for (const bullet of bullets) {
+      if (bullet.life <= 0) continue;
+
+      for (const z of zombies) {
+        if (!z.alive) continue;
+
+        const dx = bullet.x - z.x;
+        const dy = bullet.y - z.y;
+        const hitDist = z.r + 2;
+
+        if (dx * dx + dy * dy <= hitDist * hitDist) {
+          // ✅ DAMAGE APPLIED
+          const dmg = activePowers.insta ? z.hp : bullet.damage;
+          z.hp -= dmg;
+          bullet.life = 0;
+
+          if (z.hp <= 0) {
+            z.alive = false;
+            awardKill();
+            tryDropPower(z.x, z.y);
+            maybeDropPowerUp(z.x, z.y);
+          }
+          break;
+        }
+      }
+    }
+
+    // remove dead bullets
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+
+      let hitWall = false;
+
+      // ---- SOLID WALLS ----
+      for (const w of walls) {
+        if (bulletHitsRect(b, w)) {
+          hitWall = true;
+          break;
+        }
+      }
+
+
+      if (hitWall) {
+        bullets.splice(i, 1);
+        continue;
+      }
+
+      // ---- LIFETIME ----
+      b.life -= dt;
+      if (b.life <= 0) {
+        bullets.splice(i, 1);
+      }
+    }
+
+
+
+
+
+    // Power-ups floor lifetime & pickup
+    for (let i=powerDrops.length-1;i>=0;i--) {
+      const p = powerDrops[i];
+      if ((now - p.created) / 1000 >= p.ttl) { powerDrops.splice(i,1); continue; }
+      const d = Math.hypot(player.x - p.x, player.y - p.y);
+      if (d < 22) {
+        pickupPower(p);
+        powerDrops.splice(i,1);
+      }
+    }
+
+    // Power-up effect timers
+    if (activePowers.insta && now >= activePowers.timers.insta) activePowers.insta=false;
+    if (activePowers.double && now >= activePowers.timers.double) activePowers.double=false;
+    if (activePowers.death && now >= activePowers.timers.death) {
+      activePowers.death=false;
+      if (player.prevGunBeforeDeath) player.currentGun = player.prevGunBeforeDeath;
+      player.prevGunBeforeDeath = null;
+    }
+
+    // Update UI
+    uiRound.textContent = round;
+    uiPoints.textContent = Math.floor(player.points);
+    uiZombiesLeft.textContent = aliveCount;
+    uiHealth.textContent = player.hitsRemaining;
+    uiHealthMax.textContent = player.hitsMax;
+    uiWeapon.textContent = player.currentGun
+      ? `${player.currentGun.name} [UPG ${player.currentGun.upgradeLevel}]`
+      : 'None';
+    const g2 = player.currentGun;
+    if (g.reloading) {
+      uiAmmo.textContent = `${g.mag} / ${g.reserve} | RELOADING`;
+    } else {
+      uiAmmo.textContent = `${g.mag} / ${g.reserve}`;
+    }
+
+
+    const powersActive = [];
+    if (activePowers.insta) powersActive.push('Insta-Kill');
+    if (activePowers.double) powersActive.push('2x Points');
+    if (activePowers.death) powersActive.push('Death Machine');
+    uiPowers.textContent = powersActive.join(', ') || 'None';
+
+    const perksActive = Object.entries(player.perks)
+      .filter(([k,v])=>v && k!=='quickReviveUsed')
+      .map(([k])=>(k==='quickReviveUsed')?'':k)
+      .map(k => ({
+        juggernog:'Juggernog',
+        speedCola:'Speed Cola',
+        doubleTap:'Double Tap',
+        staminUp:'Stamin-Up',
+        quickRevive:'Quick Revive'
+      }[k]))
+      .filter(Boolean);
+    uiPerks.textContent = perksActive.join(', ') || 'None';
+
+    
+  }
+
+  if (player.downed) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0,0,WIDTH,HEIGHT);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(
+      `REVIVING... ${Math.ceil(player.reviveTimer)}`,
+      WIDTH / 2,
+      HEIGHT / 2
+    );
+  }
+
+  function screenToWorld(x, y) {
+    return {
+      x: x / camera.zoom + camera.x,
+      y: y / camera.zoom + camera.y
+    };
+  }
+
+
+  function getMouseWorldPos() {
+    return {
+      x: mouse.x / camera.zoom + camera.x,
+      y: mouse.y / camera.zoom + camera.y
+    };
+  }
+
+
+
+  function drawGameOverScreen() {
+    if (player.alive) return;
+
+    ctx.save();
+
+    // ✅ reset transform → true screen space
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // dark overlay
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // text
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.font = 'bold 64px sans-serif';
+    ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 30);
+
+    ctx.font = '20px sans-serif';
+    ctx.fillText(
+      'Press F5 to Restart',
+      canvas.width / 2,
+      canvas.height / 2 + 30
+    );
+
+    ctx.restore();
+  }
+
+
+
+
+
+
+  function draw() {
+    // ✅ ALWAYS start clean
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    updateCamera();
+
+    // ✅ APPLY CAMERA ONCE
+    ctx.save();
+
+    // Apply camera transform
+    ctx.scale(camera.zoom, camera.zoom);
+    ctx.translate(-camera.x, -camera.y);
+    
+    for (const d of doors) {
+      if (d.open) continue;
+
+      ctx.save();
+      ctx.translate(d.x, d.y);
+      ctx.rotate((d.rotation || 0) * Math.PI / 180);
+      ctx.fillStyle = '#7b5';
+      ctx.fillRect(-d.w/2, -d.h/2, d.w, d.h);
+      ctx.restore();
+    }
+
+
+
+    // Map background
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+    if (SHOW_WORLD_BORDER) {
+      drawWorldBorder();
+    }
+
+
+
+    for (const t of zombieTraps) {
+      ctx.save();
+      ctx.translate(t.x, t.y);
+      ctx.rotate((t.rotation || 0) * Math.PI / 180);
+
+      ctx.fillStyle = t.active ? '#ff0000' : '#550000';
+      ctx.fillRect(-t.w / 2, -t.h / 2, t.w, t.h);
+
+      if (t.active) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-t.w / 2, -t.h / 2, t.w, t.h);
+      }
+
+      ctx.restore();
+    }
+
+
+
+    // =====================
+    // Draw walls (center-based, rotated)
+    // =====================
+    ctx.fillStyle = '#555';
+    for (const w of walls) {
+      ctx.save();
+      ctx.translate(w.x, w.y);
+      ctx.rotate((w.rotation || 0) * Math.PI / 180);
+      ctx.fillRect(-w.w / 2, -w.h / 2, w.w, w.h);
+      ctx.restore();
+    }
+
+
+    // =====================
+    // Draw barriers (top-left based, rotated)
+    // =====================
+    for (const b of barriers) {
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2;
+      const rot = (b.rotation || 0) * Math.PI / 180;
+      const hpPct = b.hp / b.hpMax;
+
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(rot);
+
+      // base
+      ctx.fillStyle = '#333';
+      ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h);
+
+      // HP fill (fills from top → bottom)
+      ctx.fillStyle = b.open ? '#a33' : '#3a7';
+      ctx.fillRect(
+       -b.w / 2,
+       -b.h / 2,
+       b.w,
+       b.h * hpPct
+      );
+
+      // outline
+      ctx.strokeStyle = '#555';
+      ctx.strokeRect(-b.w / 2, -b.h / 2, b.w, b.h);
+
+      ctx.restore();
+    }
+
+    for (const w of walls) {
+      if (rectIntersect(player, w)) {
+        player.x = player.prevX;
+        player.y = player.prevY;
+      }
+    }
+
+    // Interactables (dynamic labels for wall-buys showing ammo price)
+    // Interactables (dynamic labels for wall-buys showing ammo price)
+    // Interactables (dynamic labels + mystery box active state)
+    for (const i of interacts) {
+
+      // ⭐ MYSTERY BOX COLOR LOGIC
+      if (i.type === 'box') {
+        const box = i.ref; // reference to mysteryBoxes entry
+
+        ctx.fillStyle = box && box.active
+          ? '#ffcc00'   // ACTIVE mystery box
+          : '#555555';  // INACTIVE mystery box
+      }
+      else {
+        ctx.fillStyle =
+          i.type === 'upgrade' ? '#c77dff' :
+          i.type === 'perk'
+            ? (perkColors[i.perk] || '#264653')
+            : i.type === 'wall'
+              ? '#2a9d8f'
+              : '#aaa';
+      }
+
+
+      ctx.beginPath();
+      ctx.arc(i.x, i.y, 12, 0, TWO_PI);
+      ctx.fill();
+
+
+
+      ctx.fillStyle = '#ddd';
+      ctx.font = '12px monospace';
+      ctx.textAlign = 'center';
+      let label = '';
+
+      if (i.type === 'box') {
+        const box = i.ref;
+        label = box && box.active
+          ? `Mystery Box (${i.cost})`
+          : 'Inactive Mystery Box';
+      }
+      else {
+        label = typeof i.label === 'function' ? i.label() : i.label;
+      }
+
+      if (i.type === 'wall') {
+        const gunName = i.gunName; // ← map-based wall buys use gunName
+        const owned = !!player.guns[gunName];
+        const ammoCost = Math.floor(i.cost / 2);
+        label = owned
+          ? `Ammo for ${gunName} (${ammoCost})`
+          : i.label;
+      }
+      ctx.fillText(label, i.x, i.y - 20);
+      const d = Math.hypot(player.x - i.x, player.y - i.y);
+      if (d < 60) {
+        if (i.type !== 'box' || (i.ref && i.ref.active)) {
+          ctx.fillStyle = '#bbb';
+          ctx.fillText('Press E', i.x, i.y + 24);
+        }
+      }
+
+    }
+
+    doors.forEach(d => {
+      if (d.open) return; // 🚪 opened doors vanish
+
+      ctx.save();
+      ctx.translate(d.x, d.y);
+      ctx.rotate((d.rotation || 0) * Math.PI / 180);
+
+      ctx.fillStyle = '#7b5';
+      ctx.fillRect(-d.w / 2, -d.h / 2, d.w, d.h);
+
+      ctx.restore();
+    });
+
+
+    // Power-ups on floor
+    for (const p of powerDrops) {
+      ctx.fillStyle = powerColors[p.type];
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 10, 0, TWO_PI);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(p.type, p.x, p.y - 16);
+    }
+
+    // Bullets
+    ctx.fillStyle = '#f5f5f5';
+    for (const b of bullets) {
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, 2, 0, TWO_PI);
+      ctx.fill();
+    }
+
+    // Zombies
+    for (const z of zombies) {
+      if (!z.alive) continue;
+      ctx.fillStyle = '#8b0000';
+      ctx.beginPath();
+      ctx.arc(z.x, z.y, z.r, 0, TWO_PI);
+      ctx.fill();
+      ctx.fillStyle = '#222';
+      ctx.fillRect(z.x-12, z.y-18, 24, 4);
+      const pct = clamp(z.hp / z.hpMax, 0,1);
+      ctx.fillStyle = '#0f0';
+      ctx.fillRect(z.x-12, z.y-18, 24*pct, 4);
+    }
+
+    // Player
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.angle);
+    ctx.fillStyle = '#4c8bf5';
+    ctx.beginPath();
+    ctx.arc(0,0,14,0,TWO_PI);
+    ctx.fill();
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(20,0);
+    ctx.stroke();
+    ctx.restore();
+
+    // Game over overlay
+    if (!player.alive) {
+      /* PERK WIPE */
+      player.perks = { juggernog:false, speedCola:false, doubleTap:false, staminUp:false, quickRevive:false, quickReviveUsed:false };
+      player.quickRevive.level = 0;
+      player.quickRevive.cost = player.quickRevive.baseCost;
+    }
+
+    if (player.downed) {
+  ctx.save();
+
+  // ✅ FORCE SCREEN SPACE (ignore camera)
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  const cw = canvas.width;
+  const ch = canvas.height;
+  const cx = cw / 2;
+  const cy = ch / 2;
+
+  // Dark overlay
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, 0, cw, ch);
+
+  // Center box
+  const boxW = 380;
+  const boxH = 180;
+  const bx = cx - boxW / 2;
+  const by = cy - boxH / 2;
+
+  ctx.fillStyle = '#111';
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 3;
+  ctx.fillRect(bx, by, boxW, boxH);
+  ctx.strokeRect(bx, by, boxW, boxH);
+
+  // Text settings
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Title
+  ctx.fillStyle = '#ff4444';
+  ctx.font = 'bold 42px sans-serif';
+  ctx.fillText('REVIVING', cx, by + 55);
+
+  // Timer
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '28px sans-serif';
+  ctx.fillText(
+    `${Math.ceil(player.reviveTimer)}`,
+    cx,
+    by + 115
+  );
+
+  ctx.restore();
+}
+
+
+    // Round transition banner (TOP, no dimming)
+
+    ctx.restore(); // end camera
+
+    // UI overlays (round banner, game over, revive)
+    drawRoundBanner();
+    drawGameOverScreen();
+
+  }
+
+  function loop(t) {
+    now = t;
+    const dt = (t - lastTime) / 1000;
+    lastTime = t;
+
+    if (!gamePaused && player.alive) {
+      update(dt);
+    }
+
+    draw();
+
+    if (gamePaused) {
+      drawPauseOverlay();
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    requestAnimationFrame(loop);
+  
+})();
+</script>
+</body>
+</html>
