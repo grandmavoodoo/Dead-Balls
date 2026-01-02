@@ -1,0 +1,502 @@
+{
+  "width": 1250,
+  "height": 1250,
+  "barriers": [
+    {
+      "x": 388,
+      "y": 340,
+      "w": 16,
+      "h": 120,
+      "rotation": 0
+    },
+    {
+      "x": 560,
+      "y": 120,
+      "w": 120,
+      "h": 16,
+      "rotation": 0
+    },
+    {
+      "x": 400,
+      "y": 800,
+      "w": 120,
+      "h": 16,
+      "rotation": 0
+    }
+  ],
+  "walls": [
+    {
+      "x": 260,
+      "y": 260,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 300,
+      "y": 260,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 340,
+      "y": 260,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 380,
+      "y": 260,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 260,
+      "y": 300,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 260,
+      "y": 340,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 260,
+      "y": 420,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 300,
+      "y": 420,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 340,
+      "y": 420,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 380,
+      "y": 420,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 260,
+      "y": 380,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 640,
+      "y": 80,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 120,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 640,
+      "y": 120,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 640,
+      "y": 40,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 80,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 40,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 640,
+      "y": 0,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 0,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 320,
+      "y": 620,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 320,
+      "y": 660,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 620,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 320,
+      "y": 900,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 780,
+      "y": 400,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 660,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 320,
+      "y": 700,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 320,
+      "y": 820,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 320,
+      "y": 780,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 320,
+      "y": 740,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 740,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 320,
+      "y": 860,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 860,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 820,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 780,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 700,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 360,
+      "y": 900,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 400,
+      "y": 900,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 440,
+      "y": 900,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 900,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 780,
+      "y": 240,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 760,
+      "y": 580,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    },
+    {
+      "x": 920,
+      "y": 580,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
+    }
+  ],
+  "doors": [
+    {
+      "id": "door_1767309586254",
+      "x": 400,
+      "y": 620,
+      "w": 120,
+      "h": 16,
+      "rotation": 0,
+      "cost": 50,
+      "open": false
+    }
+  ],
+  "interacts": [
+    {
+      "type": "mystery",
+      "x": 200,
+      "y": 260,
+      "cost": 50,
+      "rotation": 0
+    },
+    {
+      "type": "mystery",
+      "x": 680,
+      "y": 60,
+      "cost": 50,
+      "rotation": 0
+    },
+    {
+      "type": "mystery",
+      "x": 320,
+      "y": 480,
+      "cost": 50,
+      "rotation": 0
+    },
+    {
+      "type": "upgrade",
+      "x": 400,
+      "y": 720,
+      "cost": 50,
+      "rotation": 0
+    },
+    {
+      "type": "perk",
+      "x": 1080,
+      "y": 400,
+      "perk": "staminUp",
+      "cost": 10,
+      "radius": 50,
+      "rotation": 0
+    },
+    {
+      "type": "perk",
+      "x": 1080,
+      "y": 260,
+      "perk": "speedCola",
+      "cost": 10,
+      "radius": 50,
+      "rotation": 0
+    },
+    {
+      "type": "perk",
+      "x": 1080,
+      "y": 560,
+      "perk": "juggernog",
+      "cost": 10,
+      "radius": 50,
+      "rotation": 0
+    },
+    {
+      "type": "perk",
+      "x": 1080,
+      "y": 500,
+      "perk": "quickRevive",
+      "cost": 10,
+      "radius": 50,
+      "rotation": 0
+    },
+    {
+      "type": "perk",
+      "x": 1080,
+      "y": 320,
+      "perk": "doubleTap",
+      "cost": 10,
+      "radius": 50,
+      "rotation": 0
+    },
+    {
+      "type": "wallbuy",
+      "x": 700,
+      "y": 760,
+      "gun": "SMG",
+      "cost": 15,
+      "rotation": 0
+    },
+    {
+      "type": "wallbuy",
+      "x": 800,
+      "y": 760,
+      "gun": "SHOTGUN",
+      "cost": 15,
+      "rotation": 0
+    },
+    {
+      "type": "wallbuy",
+      "x": 900,
+      "y": 760,
+      "gun": "AR",
+      "cost": 15,
+      "rotation": 0
+    },
+    {
+      "type": "wallbuy",
+      "x": 1020,
+      "y": 760,
+      "gun": "Sniper",
+      "cost": 15,
+      "rotation": 0
+    },
+    {
+      "type": "wallbuy",
+      "x": 840,
+      "y": 860,
+      "gun": "M1 SUS",
+      "cost": 15,
+      "rotation": 0
+    },
+    {
+      "type": "trap",
+      "x": 840,
+      "y": 568,
+      "w": 120,
+      "h": 16,
+      "rotation": 0,
+      "cost": 100,
+      "duration": 20,
+      "cooldown": 45
+    },
+    {
+      "type": "trap",
+      "x": 788,
+      "y": 320,
+      "w": 16,
+      "h": 120,
+      "rotation": 0,
+      "cost": 100,
+      "duration": 10,
+      "cooldown": 25
+    }
+  ],
+  "spawns": [
+    {
+      "x": 320,
+      "y": 340,
+      "doorId": null
+    },
+    {
+      "x": 560,
+      "y": 40,
+      "doorId": null
+    },
+    {
+      "x": 400,
+      "y": 840,
+      "doorId": null,
+      "linkedDoorId": "door_1767309586254"
+    }
+  ],
+  "playerSpawns": [
+    {
+      "x": 560,
+      "y": 220,
+      "rotation": 0
+    },
+    {
+      "x": 480,
+      "y": 340,
+      "rotation": 0
+    }
+  ]
+}
