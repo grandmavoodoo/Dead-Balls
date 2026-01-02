@@ -907,36 +907,47 @@
 
   const MAX_GUNS = 2;
 
+
+
   // Player
   const player = {
-    x: WIDTH/2, y: HEIGHT/2,
-    speed: 140, // px/s
+    x: WIDTH / 2,
+    y: HEIGHT / 2,
+    speed: 140,
     angle: 0,
     radius: 14,
-    hitsRemaining: 3,
+
     hitsMax: 3,
-    lastHitTime: -Infinity,
+    hitsRemaining: 3,
+
+    // ✅ HEALTH REGEN
+    lastHitTime: 0,        // timestamp of last damage
+    regenDelay: 15000,      // ms after last hit before regen starts
+    regenRate: 0.8,        // hits per second
+
     points: 420,
     currentGun: null,
     trapDamageImmunityUntil: 0,
-    
-    guns: {},
-    quickRevive: {
-       level: 0,
-        maxLevel: 3, // solo-style quick revive
-        regenMultiplier: 1
-      },
 
+    guns: {},
     downed: false,
+    alive: true,
     reviveTimer: 0,
     reviveDuration: 5,
     zombieFearTimer: 0,
+
     perks: {
-      juggernog:false, speedCola:false, doubleTap:false, staminUp:false, quickRevive:false, quickReviveUsed:false
+      juggernog:false,
+      speedCola:false,
+      doubleTap:false,
+      staminUp:false,
+      quickRevive:false,
+      quickReviveUsed:false
     },
-    alive: true,
-    repairing: { barrier:null, timer:0, ticks:0 } // hold-E repair state
+
+    repairing: { barrier:null, timer:0, ticks:0 }
   };
+
 
   // Weapons
   function makeGun(name, {damage, fireRate, mag, reserve, reload, speed, auto=true, cost=0}) {
@@ -1675,6 +1686,27 @@
 
 
 
+      function updateHealthRegen(dt) {
+  // dead or downed players do not regen
+  if (!player.alive || player.downed) return;
+
+  // already full health
+  if (player.hitsRemaining >= player.hitsMax) return;
+
+  const now = performance.now();
+
+  // wait for delay after last hit
+  if (now - player.lastHitTime < player.regenDelay) return;
+
+  // regen amount this frame
+  const regenAmount = player.regenRate * dt;
+
+  player.hitsRemaining = Math.min(
+    player.hitsMax,
+    player.hitsRemaining + regenAmount
+  );
+}
+
 
 function tryBuyPerk(perk, cost) {
 
@@ -2012,6 +2044,11 @@ function tryBuyPerk(perk, cost) {
   function revivePlayer() {
     player.downed = false;
     player.alive = true;
+    
+
+    player.hitsRemaining = player.hitsMax;
+    player.lastHitTime = performance.now(); // delay regen briefly after revive
+
 
     player.hitsRemaining = player.hitsMax;
     player.reviveTimer = 0;
@@ -2247,102 +2284,112 @@ function tryBuyPerk(perk, cost) {
 
 
   function drawWeaponHUD() {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-      const g = player.currentGun;
-      if (!g) return;
+  const padding = 50;
+  const hudW = 200;
+  const hudH = 90;
 
-      const padding = 50;
-      const hudW = 200;
-      const hudH = 90;
+  const x = canvas.width - hudW - padding;
+  const y = canvas.height - hudH - padding;
 
-      const x = canvas.width - hudW - padding;
-      const y = canvas.height - hudH - padding;
+  ctx.save();
 
-      ctx.save();
+  // ===============================
+  // ❤️ HEALTH BAR (ALWAYS DRAWS)
+  // ===============================
+  const barWidth = hudW - 30;
+  const barHeight = 10;
+  const barX = x + 15;
+  const barY = y + hudH + 10;
+
+  const healthPct = Math.max(
+    0,
+    Math.min(1, player.hitsRemaining / player.hitsMax)
+  );
+
+  // background
+  ctx.fillStyle = '#222';
+  ctx.fillRect(barX, barY, barWidth, barHeight);
+
+  // color based on health
+  if (healthPct <= 0.3) {
+    ctx.fillStyle = '#e74c3c'; // red
+  } else if (healthPct <= 0.6) {
+    ctx.fillStyle = '#f1c40f'; // yellow
+  } else {
+    ctx.fillStyle = '#2ecc71'; // green
+  }
+
+  // fill
+  ctx.fillRect(barX, barY, barWidth * healthPct, barHeight);
+
+  // border
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(barX, barY, barWidth, barHeight);
+
+  // ===============================
+  // 🔫 WEAPON HUD (SAFE TO EXIT)
+  // ===============================
+  const g = player.currentGun;
+  if (!g) {
+    ctx.restore();
+    return;
+  }
 
   // 🔴 Blood streak background
-      ctx.fillStyle = '#8b0000';
-      ctx.beginPath();
-      ctx.moveTo(x + 22, y);
-      ctx.lineTo(x + hudW, y);
-      ctx.lineTo(x + hudW - 22, y + hudH);
-      ctx.lineTo(x, y + hudH);
-      ctx.closePath();
-      ctx.fill();
-
-      // ❤️ HEALTH BAR (UNDER WEAPON HUD)
-      const barWidth = hudW - 30;
-      const barHeight = 10;
-      const barX = x + 15;
-      const barY = y + hudH + 10; // 👈 UNDER weapon display
-
-      const healthPct = Math.max(0, player.hitsRemaining / player.hitsMax);
-
-      // background
-      ctx.fillStyle = '#222';
-      ctx.fillRect(barX, barY, barWidth, barHeight);
-
-      // color based on health
-      if (healthPct <= 0.3) {
-        ctx.fillStyle = '#e74c3c'; // red
-      } else if (healthPct <= 0.6) {
-        ctx.fillStyle = '#f1c40f'; // yellow
-    } else {
-        ctx.fillStyle = '#2ecc71'; // green
-      }
-
-// fill
-      ctx.fillRect(barX, barY, barWidth * healthPct, barHeight);
-
-// border
-      ctx.strokeStyle = '#555';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(barX, barY, barWidth, barHeight);
-
+  ctx.fillStyle = '#8b0000';
+  ctx.beginPath();
+  ctx.moveTo(x + 22, y);
+  ctx.lineTo(x + hudW, y);
+  ctx.lineTo(x + hudW - 22, y + hudH);
+  ctx.lineTo(x, y + hudH);
+  ctx.closePath();
+  ctx.fill();
 
   // 🔫 AMMO (CENTER)
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 36px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 36px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
 
-      const ammo = g.mag === Infinity ? '∞' : g.mag;
-      ctx.fillText(ammo, x + hudW / 2, y + hudH / 2 - 6);
+  const ammo = g.mag === Infinity ? '∞' : g.mag;
+  ctx.fillText(ammo, x + hudW / 2, y + hudH / 2 - 6);
 
   // 🧮 RESERVE
-      if (g.mag !== Infinity) {
-        ctx.font = '16px sans-serif';
-        ctx.fillStyle = '#ddd';
-        ctx.fillText(
-          g.reserve,
-          x + hudW / 2 + 55,
-          y + hudH / 2 - 6
-        );
-      }
+  if (g.mag !== Infinity) {
+    ctx.font = '16px sans-serif';
+    ctx.fillStyle = '#ddd';
+    ctx.fillText(
+      g.reserve,
+      x + hudW / 2 + 55,
+      y + hudH / 2 - 6
+    );
+  }
 
-      // ⭐ UPGRADE LEVEL (NEW)
-      if (g.upgradeLevel && g.upgradeLevel > 0) {
-        ctx.font = 'bold 13px sans-serif';
-        ctx.fillStyle = '#ffd700'; // gold
-        ctx.fillText(
-          `UPG ${g.upgradeLevel}`,
-          x + hudW / 2,
-          y + hudH - 30
-        );
-      }
+  // ⭐ UPGRADE LEVEL
+  if (g.upgradeLevel && g.upgradeLevel > 0) {
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillStyle = '#ffd700';
+    ctx.fillText(
+      `UPG ${g.upgradeLevel}`,
+      x + hudW / 2,
+      y + hudH - 30
+    );
+  }
 
-      // 🔤 GUN NAME
-      ctx.font = '14px sans-serif';
-      ctx.fillStyle = '#eee';
-      ctx.fillText(
-        g.name.toUpperCase(),
-        x + hudW / 2,
-        y + hudH - 15
-      );
+  // 🔤 GUN NAME
+  ctx.font = '14px sans-serif';
+  ctx.fillStyle = '#eee';
+  ctx.fillText(
+    g.name.toUpperCase(),
+    x + hudW / 2,
+    y + hudH - 15
+  );
 
-      ctx.restore();
-    }
+  ctx.restore();
+}
 
 
   function drawPointsHUD() {
@@ -2516,6 +2563,7 @@ function tryBuyPerk(perk, cost) {
 
 
     updateReloads(dt);
+    updateHealthRegen(dt);
 
 
 
@@ -2556,8 +2604,7 @@ if (player.hitsRemaining <= 0 && !player.downed) {
     player.reviveDuration = 5;
     player.reviveTimer = player.reviveDuration;
 
-    // Safety reset
-    player.lastHitTime = performance.now();
+
 
   } else {
     // NO QUICK REVIVE → GAME OVER
@@ -2565,6 +2612,9 @@ if (player.hitsRemaining <= 0 && !player.downed) {
     gameOver();
   }
 }
+
+
+
 
 
 
@@ -2583,7 +2633,6 @@ if (player.hitsRemaining <= 0 && !player.downed) {
 
         // Restore health
         player.hitsMax = player.perks.juggernog ? 5 : 3;
-        player.hitsRemaining = player.hitsMax;
 
     // Consume Quick Revive
         player.perks.quickReviveUsed = true;
@@ -2591,7 +2640,6 @@ if (player.hitsRemaining <= 0 && !player.downed) {
 
     // Safety reset
         player.reviveTimer = 0;
-        player.lastHitTime = performance.now();
   }
 
       return; // ⛔ Skip normal gameplay while downed
@@ -2870,9 +2918,6 @@ if (player.hitsRemaining <= 0 && !player.downed) {
     // Health regen after 15s no hit
     const regenDelay = 15000 / player.quickRevive.regenMultiplier;
 
-    if (player.alive && (now - player.lastHitTime) >= regenDelay && player.hitsRemaining < player.hitsMax) {
-      player.hitsRemaining = player.hitsMax;
-    }
 
 
     // Hold E to repair: 10% per second up to 10 seconds per hold
@@ -3032,6 +3077,26 @@ if (player.hitsRemaining <= 0 && !player.downed) {
       }
 
 
+      // ===============================
+      // ❤️ HEALTH REGEN SYSTEM
+      // ===============================
+      if (
+        player.alive &&
+        !player.downed &&
+        player.hitsRemaining < player.hitsMax
+      ) {
+        const now = performance.now();
+
+        if (now - player.lastHitTime >= player.regenDelay) {
+          const regenAmount = player.regenRate * (dt / 1000);
+          player.hitsRemaining = Math.min(
+          player.hitsMax,
+          player.hitsRemaining + regenAmount
+        );
+      }
+    }
+
+
       // ---------- Move toward chosen target ----------
       if (!z.skipMove) {
         const dx = targetX - z.x;
@@ -3073,7 +3138,7 @@ if (player.hitsRemaining <= 0 && !player.downed) {
     const d2p = Math.hypot(z.x - player.x, z.y - player.y);
     if (player.downed) continue;
     if (player.downed) return;
-
+    
 
     if (d2p <= playerReach) {
         z.playerHitCooldown -= dt;
@@ -3088,6 +3153,8 @@ if (player.hitsRemaining <= 0 && !player.downed) {
         if (now < player.trapDamageImmunityUntil) continue;
 
         player.hitsRemaining--;
+        player.lastHitTime = performance.now(); // 🔥 REQUIRED
+
 
         z.playerHitCooldown = 1.0;
 
