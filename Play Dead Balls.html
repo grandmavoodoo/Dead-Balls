@@ -101,15 +101,6 @@
   </div>
 
 
-  <div id="help-left" class="row help-panel">
-    <div><strong>Controls</strong></div>
-    <div>WASD = Move</div>
-    <div>Mouse = Aim</div>
-    <div>Left click = Shoot</div>
-    <div>R = Reload</div>
-    <div>E = Interact / Repair (hold near barrier)</div>
-    <div>1 = Swap Weapon</div>
-  </div>
 
   <div id="gameOver" style="
     position:fixed;
@@ -156,7 +147,9 @@
 
 
 
-<script src="guns.js"></script>
+<script src="scripts/guns.js"></script>
+<script src="scripts/gun_sounds.js"></script>
+<script src="scripts/powerup_sounds.js"></script>
 
 
 
@@ -217,6 +210,8 @@
   let WORLD_WIDTH = WIDTH;
   let WORLD_HEIGHT = HEIGHT;
   let gamePaused = false;
+  let musicVolume = 0.5;
+  window._musicTracks = [];
 
 
   // ONLY set defaults if no map is loaded
@@ -263,6 +258,7 @@
     gameStarted = true;
     round = 1;
     startRoundSpawns();
+    MusicPlayer.play();
   };
 
 
@@ -301,10 +297,37 @@
   // ===== MYSTERY BOX SYSTEM =====
   let activeMysteryIndex = -1;
   let mysterySpinCount = 0;
+  window.MASTER_VOLUME = window.MASTER_VOLUME ?? 0.6;
+  window.musicVolume = window.musicVolume ?? 0.6;
+  window.powerupVolume = 0.6;
 
   const MYSTERY_MOVE_SPINS = 10;
   const MYSTERY_MOVE_CHANCE = 0.45;
   const zombieTraps = [];
+  const musicSlider = {
+  x: 0, y: 0,
+  width: 180,
+  height: 6,
+  knobRadius: 8,
+  dragging: false
+};
+
+const masterSlider = {
+  x: 0, y: 0,
+  width: 180,
+  height: 6,
+  knobRadius: 8,
+  dragging: false
+};
+const powerupSlider = {
+  x: 0, y: 0,
+  width: 180,
+  height: 6,
+  knobRadius: 8,
+  dragging: false
+};
+
+  
 
   const PLAYER_DEFAULTS = {
     speed: 140,
@@ -374,8 +397,34 @@
   };
 
 
+window.setMasterVolume = v => {
+  MASTER_VOLUME = Math.max(0, Math.min(1, v));
+};
 
+window.setMusicVolume = v => {
+  window.musicVolume = Math.max(0, Math.min(1, v));
 
+  // apply to ALL registered music
+  for (const track of window._musicTracks) {
+    if (!track) continue;
+    track.volume = window.musicVolume;
+  }
+};
+
+// ===== ACTIVE MUSIC TRACK =====
+window.currentMusic = null;
+
+window.musicVolume = window.musicVolume ?? 0.6;
+
+window.setMusicVolume = function (v) {
+  window.musicVolume = Math.max(0, Math.min(1, v));
+
+  // APPLY IMMEDIATELY
+  if (window.currentMusic) {
+    window.currentMusic.volume =
+      window.musicVolume * (window.MASTER_VOLUME ?? 1);
+  }
+};
 
   
 
@@ -1033,6 +1082,24 @@
   // Map: barriers (rectangles) across corridors
 
 
+  // ============================
+// SLIDER HELPERS (GLOBAL)
+// ============================
+
+function updateSlider(slider, mx, setter) {
+  const t = (mx - slider.x) / slider.width;
+  setter(Math.max(0, Math.min(1, t)));
+}
+
+function hitSlider(slider, mx, my) {
+  return (
+    mx >= slider.x &&
+    mx <= slider.x + slider.width &&
+    my >= slider.y - slider.knobRadius &&
+    my <= slider.y + slider.height + slider.knobRadius
+  );
+}
+
 
 
   function removeQuickReviveMachine() {
@@ -1096,6 +1163,58 @@
 
   player.quickReviveSoldOut = false;
 
+  function setPowerupVolume(t) {
+  window.powerupVolume = Math.max(0, Math.min(1, t));
+}
+
+
+canvas.addEventListener('mousedown', e => {
+  if (!gamePaused) return;
+
+  const r = canvas.getBoundingClientRect();
+  const mx = e.clientX - r.left;
+  const my = e.clientY - r.top;
+
+  if (hitSlider(masterSlider, mx, my)) {
+    masterSlider.dragging = true;
+    updateSlider(masterSlider, mx, setMasterVolume);
+
+  } else if (hitSlider(musicSlider, mx, my)) {
+    musicSlider.dragging = true;
+    updateSlider(musicSlider, mx, setMusicVolume);
+
+  } else if (hitSlider(powerupSlider, mx, my)) {
+    powerupSlider.dragging = true;
+    updateSlider(powerupSlider, mx, setPowerupVolume);
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (!gamePaused) return;
+
+  const r = canvas.getBoundingClientRect();
+  const mx = e.clientX - r.left;
+
+  if (masterSlider.dragging) {
+    updateSlider(masterSlider, mx, setMasterVolume);
+  }
+  if (musicSlider.dragging) {
+    updateSlider(musicSlider, mx, setMusicVolume);
+  }
+  if (powerupSlider.dragging) {
+    updateSlider(powerupSlider, mx, setPowerupVolume);
+  }
+});
+
+canvas.addEventListener('mouseup', () => {
+  masterSlider.dragging = false;
+  musicSlider.dragging = false;
+  powerupSlider.dragging = false;
+});
+
+
+
+
 
 
   // Input
@@ -1114,11 +1233,13 @@
       if (key === 'escape') {
         gamePaused = !gamePaused;
 
-        // ✅ STEP 5: PREVENT STUCK KEYS (THIS IS WHAT YOU ASKED ABOUT)
+
+
+        // prevent stuck movement / shooting
         for (const k in keys) keys[k] = false;
         mouse.down = false;
 
-        return; // stop input processing
+        return;
       }
 
       // 🔫 WEAPON SWAP
@@ -1156,6 +1277,7 @@
       if (gun.reserve <= 0) return;
 
       gun.reloading = true;
+      playReloadSound(gun);
 
       const reloadMult = player.perks.speedCola ? 0.6 : 1;
       gun.reloadTimer = gun.reload * reloadMult;
@@ -1322,7 +1444,20 @@
   }
 
 
-  
+    function barrierBetweenSpawnAndPlayer(spawnX, spawnY, barrier) {
+  // Simple axis check (works for your corridor-style maps)
+  const bx = barrier.x + barrier.w / 2;
+  const by = barrier.y + barrier.h / 2;
+
+  // If spawn and player are on opposite sides of the barrier
+  const spawnSideX = spawnX < bx;
+  const playerSideX = player.x < bx;
+
+  const spawnSideY = spawnY < by;
+  const playerSideY = player.y < by;
+
+  return spawnSideX !== playerSideX || spawnSideY !== playerSideY;
+}
 
 
   
@@ -1346,6 +1481,27 @@
     b.y += ny * overlap * 0.5;
   }
 // --------------------------------------------------
+
+
+// ===== EMPTY GUN SOUND =====
+const emptyGunAudio = new Audio('assets/gun_sounds/empty_click.mp3');
+emptyGunAudio.volume = 1;
+
+let lastEmptySoundTime = 0;
+
+function playEmptyGunSound() {
+  const now = performance.now();
+
+  // prevent spam (1 click every 200ms max)
+  if (now - lastEmptySoundTime < 200) return;
+  lastEmptySoundTime = now;
+
+  const sfx = emptyGunAudio.cloneNode();
+  sfx.volume = window.MASTER_VOLUME ?? 0.6;
+  sfx.play();
+}
+
+
 
 
   // Actions
@@ -1706,6 +1862,38 @@
     player.hitsRemaining + regenAmount
   );
 }
+function hitSlider(slider, mx, my) {
+  return (
+    mx >= slider.x &&
+    mx <= slider.x + slider.width &&
+    my >= slider.y - slider.knobRadius &&
+    my <= slider.y + slider.height + slider.knobRadius
+  );
+}
+
+
+function drawSlider(slider, value) {
+  ctx.fillStyle = '#555';
+  ctx.fillRect(slider.x, slider.y, slider.width, slider.height);
+
+  ctx.fillStyle = '#1abc9c';
+  ctx.fillRect(slider.x, slider.y, slider.width * value, slider.height);
+
+  const knobX = slider.x + slider.width * value;
+  const knobY = slider.y + slider.height / 2;
+
+  ctx.beginPath();
+  ctx.arc(knobX, knobY, slider.knobRadius, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+}
+
+
+function shouldZombieIgnoreBarriers(zombie) {
+  const ALIVE_LIMIT_MS = 2 * 60 * 1000; // 2 minutes
+  return performance.now() - zombie.spawnTime >= ALIVE_LIMIT_MS;
+}
+
 
 
 function tryBuyPerk(perk, cost) {
@@ -1777,32 +1965,77 @@ function tryBuyPerk(perk, cost) {
   }
 }
 
+ function drawPauseOverlay() {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  // Dark background
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Title
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 48px system-ui';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2 - 140);
+
+  ctx.font = '20px system-ui';
+
+  // ===== MASTER VOLUME =====
+  ctx.fillText(
+    `Gun Volume: ${Math.round(window.MASTER_VOLUME * 100)}%`,
+    canvas.width / 2,
+    canvas.height / 2 - 80
+  );
+
+  masterSlider.x = canvas.width / 2 - masterSlider.width / 2;
+  masterSlider.y = canvas.height / 2 - 55;
+
+  drawSlider(masterSlider, window.MASTER_VOLUME);
+
+  // ===== MUSIC VOLUME =====
+  ctx.fillText(
+    `Music Volume: ${Math.round(window.musicVolume * 100)}%`,
+    canvas.width / 2,
+    canvas.height / 2 - 10
+  );
+
+  musicSlider.x = canvas.width / 2 - musicSlider.width / 2;
+  musicSlider.y = canvas.height / 2 + 15;
+
+  drawSlider(musicSlider, window.musicVolume);
 
 
+  // ===== POWER-UP VOLUME =====
+ctx.fillText(
+  `Power-Up Volume: ${Math.round(window.powerupVolume * 100)}%`,
+  canvas.width / 2,
+  canvas.height / 2 + 50
+);
+
+powerupSlider.x = canvas.width / 2 - powerupSlider.width / 2;
+powerupSlider.y = canvas.height / 2 + 75;
+
+drawSlider(powerupSlider, window.powerupVolume);
 
 
+  // Footer
+  ctx.font = '16px system-ui';
+  ctx.fillText('Press ESC to resume', canvas.width / 2, canvas.height / 2 + 125);
+
+  ctx.fillText('-- CONTROLS --', canvas.width / 2, canvas.height / 2 + 155);
+  ctx.fillText('W A S D = Move', canvas.width / 2, canvas.height / 2 + 170);
+  ctx.fillText('Mouse = Aim', canvas.width / 2, canvas.height / 2 + 185);
+  ctx.fillText('Left Click = Shoot', canvas.width / 2, canvas.height / 2 + 200);
+  ctx.fillText('R = Reload', canvas.width / 2, canvas.height / 2 + 215);
+  ctx.fillText('E = Interact', canvas.width / 2, canvas.height / 2 + 230);
+  ctx.fillText('1 = Swap Weapon', canvas.width / 2, canvas.height / 2 + 245);
+
+  ctx.restore();
+}
 
 
-
-  function drawPauseOverlay() {
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 48px system-ui';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2);
-
-    ctx.font = '16px system-ui';
-    ctx.fillText('Press ESC to resume', canvas.width / 2, canvas.height / 2 + 50);
-
-    ctx.restore();
-  }
 
 
 
@@ -1839,35 +2072,52 @@ function tryBuyPerk(perk, cost) {
 
 
   function spawnBatch(hp, batchCount) {
-    const activeSpawns = zombieSpawns.filter(isSpawnUnlocked);
-    if (activeSpawns.length === 0) return;
+  const activeSpawns = zombieSpawns.filter(isSpawnUnlocked);
+  if (activeSpawns.length === 0) return;
 
-    for (let i = 0; i < batchCount; i++) {
-      const s = activeSpawns[Math.floor(Math.random() * activeSpawns.length)];
+  for (let i = 0; i < batchCount; i++) {
+    const s = activeSpawns[Math.floor(Math.random() * activeSpawns.length)];
 
-      const barrier =
-        barriers.length > 0
-          ? barriers[Math.floor(Math.random() * barriers.length)]
-          : null;
+    let targetBarrier = null;
 
-      zombies.push({
-        x: s.x,
-        y: s.y,
-        r: 12,
-        speed: rnd(30, 55),
-        hp,
-        hpMax: hp,
-        targetBarrier: barrier,
-        attackBarrierDps: 12,
-        barrierHitCooldown: 1.5,
-        playerHitCooldown: 0,
-        lastX: s.x,
-        lastY: s.y,
-        stuckTime: 0,
-        alive: true
-      });
+    // Assign barrier ONLY if zombie spawns behind it
+    if (barriers && barriers.length > 0) {
+      for (const b of barriers) {
+        if (!b.open && barrierBetweenSpawnAndPlayer(s.x, s.y, b)) {
+          targetBarrier = b;
+          break;
+        }
+      }
     }
+
+    zombies.push({
+      x: s.x,
+      y: s.y,
+      r: 12,
+      speed: rnd(30, 55),
+
+      hp,
+      hpMax: hp,
+
+      // 🧠 Barrier targeting
+      targetBarrier: targetBarrier,
+      spawnedBehindBarrier: !!targetBarrier,
+      spawnTime: performance.now(),
+
+      attackBarrierDps: 12,
+      barrierHitCooldown: 1.5,
+      playerHitCooldown: 0,
+
+      // Movement / stuck logic
+      lastX: s.x,
+      lastY: s.y,
+      stuckTime: 0,
+
+      alive: true
+    });
   }
+}
+
 
 
   function tryUpgradeCurrentGun(stationCost) {
@@ -1903,6 +2153,7 @@ function tryBuyPerk(perk, cost) {
     // 🔁 auto-reload when empty (DO NOT fire)
     if (g.mag <= 0 && g.mag !== Infinity) {
       if (g.reserve > 0) startReload(g);
+      playEmptyGunSound();
       return;
     }
 
@@ -1921,7 +2172,7 @@ function tryBuyPerk(perk, cost) {
       life: 1.2,
       radius: 3
     });
-
+    playGunSound(g);
     // 🔫 consume ammo
     if (g.mag !== Infinity) g.mag--;
 
@@ -1929,33 +2180,61 @@ function tryBuyPerk(perk, cost) {
     g.cooldown = 1 / g.fireRate;
   }
 
+function updatePowerDrops(now) {
+  for (let i = powerDrops.length - 1; i >= 0; i--) {
+    const p = powerDrops[i];
+
+    // despawn after 30s
+    if (now - p.spawnedAt >= p.lifetime) {
+      powerDrops.splice(i, 1);
+    }
+  }
+}
 
 
 
   // Power-up drops
-  function tryDropPower(x,y) {
-    const chance = 0.001; // 12% per kill
-    if (Math.random() > chance) return;
-    const weights = [
-      {t:'INSTA', w:1.0},
-      {t:'NUKE', w:0.6},
-      {t:'2X', w:1.0},
-      {t:'MAX', w:0.9},
-      {t:'CARPENTER', w:0.8},
-      {t:'DEATH', w:0.7}
-    ];
-    const total = weights.reduce((a,b)=>a+b.w,0);
-    let r = Math.random() * total;
-    let pick = 'INSTA';
-    for (const w of weights) {
-      if ((r -= w.w) <= 0) { pick = w.t; break; }
+  function tryDropPower(x, y) {
+  const chance = 0.12; // ✅ 12% per kill (your comment was right, value was not)
+  if (Math.random() > chance) return;
+
+  const weights = [
+    { t: 'INSTA',     w: 1.0 },
+    { t: 'NUKE',      w: 0.6 },
+    { t: '2X',        w: 1.0 },
+    { t: 'MAX',       w: 0.9 },
+    { t: 'CARPENTER', w: 0.8 },
+    { t: 'DEATH',     w: 0.7 }
+  ];
+
+  const total = weights.reduce((a, b) => a + b.w, 0);
+  let r = Math.random() * total;
+  let pick = weights[0].t;
+
+  for (const w of weights) {
+    if ((r -= w.w) <= 0) {
+      pick = w.t;
+      break;
     }
-    powerDrops.push({
-      type: pick, x, y, created: now, ttl: 30
-    });
   }
 
+  powerDrops.push({
+    type: pick,
+    x,
+    y,
+    r: 16,
+
+    // ✅ FIXED LIFETIME SYSTEM
+    spawnedAt: performance.now(),
+    lifetime: 30000 // 30 seconds in ms
+  });
+}
+
+
+
+
   function pickupPower(p) {
+    playPowerupSound(p.type);
     if (p.type === 'INSTA') {
       activePowers.insta = true;
       activePowers.timers.insta = now + 30_000;
@@ -2002,6 +2281,7 @@ function tryBuyPerk(perk, cost) {
     }
   }
 
+  
   
   
 
@@ -2564,6 +2844,7 @@ function tryBuyPerk(perk, cost) {
 
     updateReloads(dt);
     updateHealthRegen(dt);
+    updatePowerDrops(now);
 
 
 
@@ -2715,6 +2996,14 @@ if (player.hitsRemaining <= 0 && !player.downed) {
 
     for (const z of zombies) {
       for (const b of barriers) {
+
+        // ⏱️ Barrier timeout check
+        if (z.spawnedBehindBarrier && shouldZombieIgnoreBarriers(z)) {
+          z.spawnedBehindBarrier = false;
+          z.targetBarrier = null;
+          z.blockedByBarrier = null;
+        }
+
         if (b.hp <= 0) continue; // only ignore broken barriers
 
         if (
@@ -3008,47 +3297,65 @@ if (player.hitsRemaining <= 0 && !player.downed) {
       let chasingPlayer = true;
 
       const b = z.targetBarrier;
-      if (b && !b.open) {
-        const isLeft = (b.x < WIDTH / 2);
-        const zombieLeftSide =
-          (isLeft && z.x < b.x) ||
-          (!isLeft && z.x > (b.x + b.w));
+      // ===============================
+// ZOMBIE → BARRIER / PLAYER LOGIC
+// ===============================
 
-        if (zombieLeftSide) {
-          const bx = b.x + b.w / 2;
-          const by = clamp(z.y, b.y, b.y + b.h);
-          const distBarrier = Math.hypot(z.x - bx, z.y - by);
+// Default: chase player
 
-          // 🧠 DECISION:
-          // If barrier is closer than player → target barrier
-          if (distBarrier < distPlayer) {
-            chasingPlayer = false;
-            targetX = bx;
-            targetY = by;
-          
+// Only consider barriers if this zombie spawned behind one
+if (
+  z.spawnedBehindBarrier &&
+  z.targetBarrier &&
+  !z.targetBarrier.open
+) {
+  const b = z.targetBarrier;
 
-            // ----- Barrier attack logic -----
-            if (distBarrier <= 22) {
-              z.blockedByBarrier = b;
+  const bx = b.x + b.w / 2;
+  const by = clamp(z.y, b.y, b.y + b.h);
 
-              z.barrierHitCooldown -= dt;
-              if (z.barrierHitCooldown <= 0) {
-                b.hp -= z.attackBarrierDps;
-                z.barrierHitCooldown = 1.5;
+  const distBarrier = Math.hypot(z.x - bx, z.y - by);
 
-                if (b.hp <= 0) {
-                  b.hp = 0;
-                  b.open = true;
-                  z.blockedByBarrier = null;
-                }
-              }
+  // If barrier is closer than player → attack barrier
+  if (distBarrier < distPlayer) {
+    chasingPlayer = false;
+    targetX = bx;
+    targetY = by;
 
-        // Stop movement ONLY when actually attacking barrier
-           z.skipMove = true;
-            }
-          }
-       }
+    // ----- Barrier attack logic -----
+    // ----- Barrier attack logic -----
+    if (distBarrier <= 22) {
+
+  // ⛔ Safety guard — expired / invalid zombies cannot hit barriers
+      if (!z.spawnedBehindBarrier || !z.targetBarrier) continue;
+
+      z.blockedByBarrier = b;
+
+      z.barrierHitCooldown -= dt;
+      if (z.barrierHitCooldown <= 0) {
+        b.hp -= z.attackBarrierDps;
+        z.barrierHitCooldown = 1.5;
+
+        if (b.hp <= 0) {
+          b.hp = 0;
+          b.open = true;
+          z.blockedByBarrier = null;
+        }
       }
+
+  // Stop movement ONLY when attacking barrier
+  z.skipMove = true;
+}
+
+  }
+}
+
+// If not attacking barrier → chase player
+if (chasingPlayer) {
+  targetX = player.x;
+  targetY = player.y;
+}
+
 
       if (player.zombieFearTimer > 0) {
         player.zombieFearTimer -= dt;
@@ -3320,9 +3627,110 @@ if (player.hitsRemaining <= 0 && !player.downed) {
 
 
 
+  
+
+// ================================
+// 🎵 BACKGROUND MUSIC MANAGER
+// ================================
+const MusicPlayer = {
+  playlist: [
+    'assets/music/song1.mp3',
+    'assets/music/song2.mp3',
+    'assets/music/song3.mp3',
+    'assets/music/song4.mp3',
+    'assets/music/song5.mp3',
+    'assets/music/song6.mp3',
+    'assets/music/song7.mp3',
+    'assets/music/song8.mp3',
+    'assets/music/song9.mp3',
+    'assets/music/song10.mp3',
+    'assets/music/song11.mp3',
+    'assets/music/song12.mp3',
+    'assets/music/song13.mp3',
+  ],
+
+  audio: new Audio(),
+  currentIndex: 0,
+  shuffle: true,
+  playedIndices: [],
+
+  init() {
+    // register this as the active music source
+    window.currentMusic = this.audio;
+
+    this.audio.loop = false;
+    this.applyVolume();
+
+    this.audio.addEventListener('ended', () => this.playNext());
+  },
+
+  applyVolume() {
+    const music = window.musicVolume ?? 0.6;
+    const master = window.MASTER_VOLUME ?? 1;
+
+    this.audio.volume = music * master;
+  },
+
+  setVolume(v) {
+    window.musicVolume = Math.max(0, Math.min(1, v));
+    this.applyVolume();
+  },
+
+  play() {
+    if (!this.audio.src) {
+      this.pickNextIndex();
+      this.audio.src = this.playlist[this.currentIndex];
+    }
+
+    this.applyVolume();
+    this.audio.play();
+  },
+
+  pause() {
+    this.audio.pause();
+  },
+
+  stop() {
+    this.audio.pause();
+    this.audio.currentTime = 0;
+  },
+
+  toggleShuffle() {
+    this.shuffle = !this.shuffle;
+    console.log('Shuffle:', this.shuffle ? 'ON' : 'OFF');
+  },
+
+  pickNextIndex() {
+    if (this.shuffle) {
+      if (this.playedIndices.length >= this.playlist.length) {
+        this.playedIndices = [];
+      }
+
+      let next;
+      do {
+        next = Math.floor(Math.random() * this.playlist.length);
+      } while (this.playedIndices.includes(next));
+
+      this.playedIndices.push(next);
+      this.currentIndex = next;
+    } else {
+      this.currentIndex = (this.currentIndex + 1) % this.playlist.length;
+    }
+  },
+
+  playNext() {
+    this.pickNextIndex();
+    this.audio.src = this.playlist[this.currentIndex];
+    this.applyVolume();
+    this.audio.play();
+  }
+};
+
+// Initialize once
+MusicPlayer.init();
 
 
-
+  
 
 
 
