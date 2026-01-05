@@ -291,9 +291,9 @@
   const powerDrops = [];
   const SHOW_WORLD_BORDER = true;
   const doors = [];
-  const ZOMBIE_STUCK_TIME = 10.5;     // seconds before considered stuck
+  const ZOMBIE_STUCK_TIME = 7;     // seconds before considered stuck
   const ZOMBIE_STUCK_DIST = 2;      // px movement threshold
-  const ZOMBIE_TELEPORT_RADIUS = 15 * 15; // 25 blocks × 20px grid
+  const ZOMBIE_TELEPORT_RADIUS = 10 * 10; // 25 blocks × 20px grid
   // ===== MYSTERY BOX SYSTEM =====
   let activeMysteryIndex = -1;
   let mysterySpinCount = 0;
@@ -1082,6 +1082,9 @@ window.setMusicVolume = function (v) {
   let spawnTimer = 0;
 
   // Map: barriers (rectangles) across corridors
+
+
+
 
 
   // ============================
@@ -2037,6 +2040,53 @@ drawSlider(powerupSlider, window.powerupVolume);
   ctx.restore();
 }
 
+
+function resolveZombieWallCollisionWithBoost(z, wall) {
+  // ---- safety init ----
+  if (z.wallSpeedBoost == null) z.wallSpeedBoost = 1;
+  if (z.wallBoostTimer == null) z.wallBoostTimer = 0;
+
+  let touching = false;
+
+  if (wall.slope) {
+    const r = z.r || z.radius || 12;
+
+    // detect slope overlap FIRST
+    const tri = getSlopeTriangle(wall);
+    if (tri && pointInTriangle(z.x, z.y, tri)) {
+      touching = true;
+    }
+
+    // resolve collision
+    resolveCircleSlopeCollision(z, wall, r);
+
+  } else {
+    // normal wall overlap check
+    const left   = wall.x - wall.w / 2;
+    const right  = wall.x + wall.w / 2;
+    const top    = wall.y - wall.h / 2;
+    const bottom = wall.y + wall.h / 2;
+
+    const r = z.r || z.radius || 12;
+
+    if (
+      z.x + r > left &&
+      z.x - r < right &&
+      z.y + r > top &&
+      z.y - r < bottom
+    ) {
+      touching = true;
+    }
+
+    resolveWallCollision(z, wall);
+  }
+
+  // ---- APPLY BOOST ----
+  if (touching) {
+    z.wallSpeedBoost = Math.min(3, z.wallSpeedBoost + 0.6);
+    z.wallBoostTimer = 250; // ms
+  }
+}
 
 
 
@@ -3268,7 +3318,7 @@ if (player.hitsRemaining <= 0 && !player.downed) {
     // Zombies vs walls
     for (const z of zombies) {
       if (!z.alive) continue;
-
+      
       for (const d of doors) {
         if (!d.open) {
           resolveCircleWallCollision(z, d);
@@ -3291,24 +3341,26 @@ if (player.hitsRemaining <= 0 && !player.downed) {
     
 
     // Player vs walls
-    for (const wall of walls) {
+// Player vs walls
+for (const wall of walls) {
 
   if (wall.slope) {
-    // 🔺 slope collision
+    // 🔺 slope collision (player)
     const rPlayer = player.r || player.radius || 12;
     resolveCircleSlopeCollision(player, wall, rPlayer);
 
+    // 🧟 zombies (WITH BOOST)
     for (const z of zombies) {
-      const rZ = z.r || z.radius || 12;
-      resolveCircleSlopeCollision(z, wall, rZ);
+      resolveZombieWallCollisionWithBoost(z, wall);
     }
 
   } else {
-    // 🧱 normal wall collision
+    // 🧱 normal wall collision (player)
     resolveWallCollision(player, wall);
 
+    // 🧟 zombies (WITH BOOST)
     for (const z of zombies) {
-      resolveWallCollision(z, wall);
+      resolveZombieWallCollisionWithBoost(z, wall);
     }
   }
 }
@@ -3735,16 +3787,30 @@ if (chasingPlayer) {
 
 
       // ---------- Move toward chosen target ----------
-      if (!z.skipMove) {
-        const dx = targetX - z.x;
-        const dy = targetY - z.y;
-        const dist = Math.hypot(dx, dy);
+if (!z.skipMove) {
+  const dx = targetX - z.x;
+  const dy = targetY - z.y;
+  const dist = Math.hypot(dx, dy);
 
-        if (dist > 0) {
-          z.x += (dx / dist) * z.speed * dt;
-          z.y += (dy / dist) * z.speed * dt;
-        }
-      }
+  // 🔥 Safety init (no spawn changes needed)
+  if (z.wallSpeedBoost == null) z.wallSpeedBoost = 1;
+  if (z.wallBoostTimer == null) z.wallBoostTimer = 0;
+
+  // 🔻 Decay wall boost when not refreshing
+  if (z.wallBoostTimer > 0) {
+    z.wallBoostTimer -= dt * 1000;
+  } else {
+    z.wallSpeedBoost = Math.max(1, z.wallSpeedBoost - dt * 2);
+  }
+
+  if (dist > 0) {
+    const boost = Math.min(3, z.wallSpeedBoost);
+
+    z.x += (dx / dist) * z.speed * boost * dt;
+    z.y += (dy / dist) * z.speed * boost * dt;
+  }
+}
+
 
       z.skipMove = false;
 
