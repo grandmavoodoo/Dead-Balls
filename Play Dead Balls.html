@@ -291,15 +291,28 @@
   const powerDrops = [];
   const SHOW_WORLD_BORDER = true;
   const doors = [];
-  const ZOMBIE_STUCK_TIME = 7;     // seconds before considered stuck
+  const ZOMBIE_STUCK_TIME = 15;     // seconds before considered stuck
   const ZOMBIE_STUCK_DIST = 2;      // px movement threshold
   const ZOMBIE_TELEPORT_RADIUS = 10 * 10; // 25 blocks × 20px grid
   // ===== MYSTERY BOX SYSTEM =====
   let activeMysteryIndex = -1;
   let mysterySpinCount = 0;
   window.MASTER_VOLUME = window.MASTER_VOLUME ?? 0.6;
-  window.musicVolume = window.musicVolume ?? 0.6;
-  window.powerupVolume = 0.6;
+  window.musicVolume = window.musicVolume ?? 0.05;
+  window.powerupVolume = 0.30;
+
+  const INTERACT_COOLDOWN_MS = 2000;
+
+  let lastGlobalInteractTime = 0;
+
+  function canInteractNow() {
+    return performance.now() - lastGlobalInteractTime >= INTERACT_COOLDOWN_MS;
+  }
+
+  function markInteractUsed() {
+    lastGlobalInteractTime = performance.now();
+  }
+
 
   const MYSTERY_MOVE_SPINS = 10;
   const MYSTERY_MOVE_CHANCE = 0.45;
@@ -556,18 +569,7 @@ window.setMusicVolume = function (v) {
         }
       });
 
-    // ---------- TRAP INTERACTS ----------
-    // ---------- ZOMBIE TRAP INTERACTS ----------
 
-
-
-
-
-
-
-
-  /* ---------- BARRIERS ---------- */
-  /* ---------- BARRIERS ---------- */
   /* ---------- BARRIERS (CENTER → TOP-LEFT FIX) ---------- */
     if (Array.isArray(map.barriers)) {
       map.barriers.forEach(b => {
@@ -668,6 +670,13 @@ window.setMusicVolume = function (v) {
         }
       });
     }
+function withInteractCooldown(action) {
+  return () => {
+    if (!canInteractNow()) return;
+    action();
+    markInteractUsed();
+  };
+}
 
     //------------------
     // Rebuild interact list (used by draw() and E key)
@@ -884,32 +893,81 @@ window.setMusicVolume = function (v) {
   }
 
 
+  function respawnZombieAtClosestSpawnToPlayer(z) {
+  let best = null;
+  let bestDist = Infinity;
+
+  for (const s of zombieSpawns) {
+    if (!isSpawnUnlocked(s)) continue;
+
+    const dx = s.x - player.x;
+    const dy = s.y - player.y;
+    const d = dx * dx + dy * dy;
+
+    if (d < bestDist) {
+      bestDist = d;
+      best = s;
+    }
+  }
+
+  if (!best) return false;
+
+  // small random offset so they don’t stack
+  const angle = Math.random() * Math.PI * 2;
+  const offset = 12;
+
+  z.x = clamp(
+    best.x + Math.cos(angle) * offset,
+    20,
+    WORLD_WIDTH - 20
+  );
+  z.y = clamp(
+    best.y + Math.sin(angle) * offset,
+    20,
+    WORLD_HEIGHT - 20
+  );
+
+  z.lastX = z.x;
+  z.lastY = z.y;
+  z.stuckTime = 0;
+  
+
+  return true;
+}
+
 
   function handleZombieStuck(z, dt) {
-    const dx = z.x - z.lastX;
-    const dy = z.y - z.lastY;
-    const moved = Math.hypot(dx, dy);
+  const dx = z.x - z.lastX;
+  const dy = z.y - z.lastY;
+  const moved = Math.hypot(dx, dy);
 
-    if (moved < ZOMBIE_STUCK_DIST) {
-      z.stuckTime += dt;
-    } else {
-      z.stuckTime = 0;
-      z.lastX = z.x;
-      z.lastY = z.y;
-    }
+  if (moved < ZOMBIE_STUCK_DIST) {
+    z.stuckTime += dt;
+  } else {
+    z.stuckTime = 0;
+    z.lastX = z.x;
+    z.lastY = z.y;
+  }
 
-    if (z.stuckTime >= ZOMBIE_STUCK_TIME) {
-      const b = z.targetBarrier;
-      if (b && !b.open) {
-        return;
-      }
+  if (z.stuckTime >= ZOMBIE_STUCK_TIME) {
+    // 🚪 Don’t teleport zombies that are meant to attack barriers
+    const b = z.targetBarrier;
+    if (b && !b.open) return;
+
+    // ✅ FIRST: respawn at closest unlocked spawn to player
+    const didRespawn = respawnZombieAtClosestSpawnToPlayer(z);
+
+    // 🔁 FALLBACK: teleport near player if no spawn worked
+    if (!didRespawn) {
       teleportZombieNearPlayer(z);
-      z.stuckTime = 0;
-      z.lastX = z.x;
-      z.lastY = z.y;
     }
 
-    }
+    z.stuckTime = 0;
+    z.lastX = z.x;
+    z.lastY = z.y;
+  }
+}
+
 
 
     function updateZombieCounter() {
@@ -962,42 +1020,47 @@ window.setMusicVolume = function (v) {
 
   // Player
   const player = {
-    x: WIDTH / 2,
-    y: HEIGHT / 2,
-    speed: 140,
-    angle: 0,
-    radius: 14,
+  x: WIDTH / 2,
+  y: HEIGHT / 2,
+  speed: 140,
+  angle: 0,
+  radius: 14,
 
-    hitsMax: 3,
-    hitsRemaining: 3,
+  hitsMax: 3,
+  hitsRemaining: 3,
 
-    // ✅ HEALTH REGEN
-    lastHitTime: 0,        // timestamp of last damage
-    regenDelay: 15000,      // ms after last hit before regen starts
-    regenRate: 0.8,        // hits per second
+  // ✅ HEALTH REGEN
+  lastHitTime: 0,        // timestamp of last damage
+  regenDelay: 15000,     // ms after last hit before regen starts
+  regenRate: 0.8,        // hits per second
 
-    points: 420,
-    currentGun: null,
-    trapDamageImmunityUntil: 0,
+  points: 420,
+  currentGun: null,
+  trapDamageImmunityUntil: 0,
 
-    guns: {},
-    downed: false,
-    alive: true,
-    reviveTimer: 0,
-    reviveDuration: 5,
-    zombieFearTimer: 0,
+  guns: {},
+  downed: false,
+  alive: true,
+  reviveTimer: 0,
+  reviveDuration: 5,
+  zombieFearTimer: 0,
 
-    perks: {
-      juggernog:false,
-      speedCola:false,
-      doubleTap:false,
-      staminUp:false,
-      quickRevive:false,
-      quickReviveUsed:false
-    },
+  perks: {
+    juggernog:false,
+    speedCola:false,
+    doubleTap:false,
+    staminUp:false,
+    quickRevive:false,
+    quickReviveUsed:false
+  },
 
-    repairing: { barrier:null, timer:0, ticks:0 }
-  };
+  // 🛠️ BARRIER REPAIR STATE
+  repairing: {
+    barrier: null,
+    lastRepairTime: 0
+  }
+};
+
 
 
   // Weapons
@@ -1740,39 +1803,46 @@ function playEmptyGunSound() {
 
 
   function tryMysteryBox(cost) {
-    const box = mysteryBoxes[activeMysteryIndex];
-    if (!box || !box.active) return;
-    if (player.points < cost) return;
+  // ⏱️ GLOBAL INTERACT COOLDOWN
+  if (!canInteractNow()) return;
 
-    player.points -= cost;
-    mysterySpinCount++;
+  const box = mysteryBoxes[activeMysteryIndex];
+  if (!box || !box.active) return;
+  if (player.points < cost) return;
 
-    const pick =
-      MYSTERY_BOX_GUNS[Math.floor(Math.random() * MYSTERY_BOX_GUNS.length)];
+  // ✅ COMMIT INTERACTION
+  markInteractUsed();
 
-    const alreadyOwned = !!player.guns[pick.name];
+  player.points -= cost;
+  mysterySpinCount++;
+
+  const pick =
+    MYSTERY_BOX_GUNS[Math.floor(Math.random() * MYSTERY_BOX_GUNS.length)];
+
+  const alreadyOwned = !!player.guns[pick.name];
 
   // 🔒 ENFORCE MAX GUNS
-    if (!alreadyOwned && ownedGunCount() >= MAX_GUNS) {
-      removeCurrentGunIfNeeded();
-    }
+  if (!alreadyOwned && ownedGunCount() >= MAX_GUNS) {
+    removeCurrentGunIfNeeded();
+  }
 
-  // Give gun if not owned
-    if (!player.guns[pick.name]) {
-      player.guns[pick.name] = structuredClone(pick);
-    }
+  // 🎁 Give gun if not owned
+  if (!player.guns[pick.name]) {
+    player.guns[pick.name] = structuredClone(pick);
+  }
 
-    player.currentGun = player.guns[pick.name];
+  player.currentGun = player.guns[pick.name];
 
-  // ===== MOVE CHECK =====
-    if (mysterySpinCount >= MYSTERY_MOVE_SPINS) {
-      mysterySpinCount = 0;
+  // 📦 MOVE BOX CHECK
+  if (mysterySpinCount >= MYSTERY_MOVE_SPINS) {
+    mysterySpinCount = 0;
 
-      if (Math.random() < MYSTERY_MOVE_CHANCE) {
-        moveMysteryBox();
-      }
+    if (Math.random() < MYSTERY_MOVE_CHANCE) {
+      moveMysteryBox();
     }
   }
+}
+
 
 
 
@@ -2040,6 +2110,45 @@ drawSlider(powerupSlider, window.powerupVolume);
   ctx.restore();
 }
 
+function checkZombiePassedBarrier(z, barrier) {
+  if (!barrier || barrier.open) return false;
+  if (z.ignoreBarriers) return false;
+
+  const zx = z.x;
+  const zy = z.y;
+
+  // Barrier center
+  const bx = barrier.x + barrier.w / 2;
+  const by = barrier.y + barrier.h / 2;
+
+  // Previous position
+  const px = z.lastX;
+  const py = z.lastY;
+
+  // Did zombie cross the barrier rectangle?
+  const wasOutside =
+    px < barrier.x ||
+    px > barrier.x + barrier.w ||
+    py < barrier.y ||
+    py > barrier.y + barrier.h;
+
+  const nowInside =
+    zx >= barrier.x &&
+    zx <= barrier.x + barrier.w &&
+    zy >= barrier.y &&
+    zy <= barrier.y + barrier.h;
+
+  // If zombie entered the barrier zone → it passed through
+  if (wasOutside && nowInside) {
+    z.ignoreBarriers = true;
+    z.passedBarrier = true;
+    z.targetBarrier = null;
+    return true;
+  }
+
+  return false;
+}
+
 
 function resolveZombieWallCollisionWithBoost(z, wall) {
   // ---- safety init ----
@@ -2122,6 +2231,8 @@ function resolveZombieWallCollisionWithBoost(z, wall) {
     });
   }
 
+  
+
 
   function spawnBatch(hp, batchCount) {
   const activeSpawns = zombieSpawns.filter(isSpawnUnlocked);
@@ -2151,11 +2262,18 @@ function resolveZombieWallCollisionWithBoost(z, wall) {
       hp,
       hpMax: hp,
 
-      // 🧠 Barrier targeting
+      // ===============================
+      // 🧠 BARRIER STATE (STEP ONE FIX)
+      // ===============================
       targetBarrier: targetBarrier,
       spawnedBehindBarrier: !!targetBarrier,
+
+      ignoreBarriers: false,          // 🔒 once true, never target barriers again
+      passedBarriers: new Set(),      // ✅ track crossed barriers (IMPORTANT)
+
       spawnTime: performance.now(),
 
+      // Barrier / player attack logic
       attackBarrierDps: 12,
       barrierHitCooldown: 1.5,
       playerHitCooldown: 0,
@@ -2167,6 +2285,48 @@ function resolveZombieWallCollisionWithBoost(z, wall) {
 
       alive: true
     });
+  }
+}
+
+function checkZombiePassedBarrier(z, barrier) {
+  if (z.ignoreBarriers) return;
+  if (barrier.open) return;
+
+  // barrier bounds (top-left based, same as your collision)
+  const left   = barrier.x;
+  const right  = barrier.x + barrier.w;
+  const top    = barrier.y;
+  const bottom = barrier.y + barrier.h;
+
+  // previous & current positions
+  const px = z.lastX ?? z.x;
+  const py = z.lastY ?? z.y;
+  const cx = z.x;
+  const cy = z.y;
+
+  // determine which side zombie was on
+  const wasOutside =
+    px < left || px > right || py < top || py > bottom;
+
+  const isInside =
+    cx > left && cx < right && cy > top && cy < bottom;
+
+  // crossed THROUGH the barrier
+  if (wasOutside && isInside) {
+    z.passedBarriers.add(barrier);
+  }
+
+  // once fully past (inside → outside opposite side)
+  const exited =
+    z.passedBarriers.has(barrier) &&
+    (cx < left || cx > right || cy < top || cy > bottom);
+
+  if (exited) {
+    z.ignoreBarriers = true;
+
+    // 🔒 force targeting player only
+    z.targetBarrier = null;
+    z.blockedByBarrier = null;
   }
 }
 
@@ -2295,7 +2455,7 @@ function updatePowerDrops(now) {
       activePowers.timers.double = now + 30_000;
     } else if (p.type === 'DEATH') {
       activePowers.death = true;
-      activePowers.timers.death = now + 30_000;
+      activePowers.timers.death = now + 15_000;
       player.prevGunBeforeDeath = player.currentGun;
       player.currentGun = deathMachine;
     } else if (p.type === 'NUKE') {
@@ -2348,33 +2508,40 @@ function updatePowerDrops(now) {
     player.points += pts;
   }
   function awardKill() {
-    let pts = 50;
+    let pts = 100;
     if (activePowers.double) pts *= 2;
     player.points += pts;
   }
   function awardRepair() {
-    let pts = 10;
+    let pts = 5;
     if (activePowers.double) pts *= 2;
     player.points += pts;
   }
 
   // Barrier repair (single tick)
     function repairBarrierTick(b) {
-    const add = Math.ceil(b.hpMax * 0.10); // 10%
-    const before = b.hp;
+  // ⏱️ GLOBAL INTERACT COOLDOWN
+  if (!canInteractNow()) return;
+
+  const add = Math.ceil(b.hpMax * 0.05); // 10%
+  const before = b.hp;
 
   // Allow rebuild from zero
-    b.hp = clamp(b.hp + add, 0, b.hpMax);
+  b.hp = clamp(b.hp + add, 0, b.hpMax);
 
-    if (b.hp > before) {
-      awardRepair();
-    }
+  if (b.hp > before) {
+    awardRepair();
+
+    // ✅ COMMIT INTERACTION ONLY IF REPAIR ACTUALLY HAPPENED
+    markInteractUsed();
+  }
 
   // Barrier is solid again as soon as HP > 0
-    if (b.hp > 0) {
-      b.open = false;
-    }
+  if (b.hp > 0) {
+    b.open = false;
   }
+}
+
 
 
   function getSlopeTriangle(wall) {
@@ -3134,6 +3301,8 @@ function resolveCircleTriangleCollision(circle, tri) {
           for (const b of barriers) {
             if (!b.open) {
               resolveCircleRotatedRectCollision(zombie, b);
+              resolveEntityBarrierCollision(z, b);
+              checkZombiePassedBarrier(z, b);
             }
           }
         }
@@ -3378,6 +3547,8 @@ for (const wall of walls) {
 
     for (const z of zombies) {
       for (const b of barriers) {
+        resolveEntityBarrierCollision(z, b);
+        checkZombiePassedBarrier(z, b);
 
         // ⏱️ Barrier timeout check
         if (z.spawnedBehindBarrier && shouldZombieIgnoreBarriers(z)) {
@@ -3593,33 +3764,27 @@ for (const wall of walls) {
 
     // Hold E to repair: 10% per second up to 10 seconds per hold
     if (keys['e']) {
-      const b = nearestDamagedBarrier();
+  const b = nearestDamagedBarrier();
+  const now = performance.now();
 
-        if (b && b.hp > 0) {
-          if (player.repairing.barrier !== b) {
-            player.repairing.barrier = b;
-            player.repairing.timer = 0;
-            player.repairing.ticks = 0;
-          }
+  if (
+    b &&
+    b.hp > 0 &&
+    b.hp < b.hpMax &&
+    canInteractNow() // ⏱️ GLOBAL INTERACT COOLDOWN
+  ) {
+    repairBarrierTick(b);
 
-          player.repairing.timer += dt;
+    // ✅ COMMIT INTERACTION
+    markInteractUsed();
 
-          while (
-            player.repairing.timer >= 1 &&
-            player.repairing.ticks < 10 &&
-            b.hp > 0 &&
-            b.hp < b.hpMax
-          ) {
-            player.repairing.timer -= 1;
-            player.repairing.ticks++;
-            repairBarrierTick(b);
-          }
-        } else {
-          player.repairing.barrier = null;
-          player.repairing.timer = 0;
-          player.repairing.ticks = 0;
-        }
-      }
+    // (Optional) keep local timestamp if you still want it for UI
+    player.repairing.lastRepairTime = now;
+  }
+}
+
+
+
 
 
     // Update barriers open state
@@ -3658,7 +3823,7 @@ for (const wall of walls) {
       const dxp = player.x - z.x;
       const dyp = player.y - z.y;
       const distPlayer = Math.hypot(dxp, dyp);
-
+      
       const fearing = player.zombieFearTimer > 0;
 
         if (fearing) {
@@ -3706,7 +3871,7 @@ if (
 
     // ----- Barrier attack logic -----
     // ----- Barrier attack logic -----
-    if (distBarrier <= 22) {
+    if (distBarrier <= 10) {
 
   // ⛔ Safety guard — expired / invalid zombies cannot hit barriers
       if (!z.spawnedBehindBarrier || !z.targetBarrier) continue;
@@ -3716,7 +3881,7 @@ if (
       z.barrierHitCooldown -= dt;
       if (z.barrierHitCooldown <= 0) {
         b.hp -= z.attackBarrierDps;
-        z.barrierHitCooldown = 1.5;
+        z.barrierHitCooldown = 0.5;
 
         if (b.hp <= 0) {
           b.hp = 0;
