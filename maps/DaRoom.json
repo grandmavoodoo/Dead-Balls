@@ -957,13 +957,6 @@
       "rotation": 0
     },
     {
-      "x": 560,
-      "y": 500,
-      "w": 40,
-      "h": 40,
-      "rotation": 0
-    },
-    {
       "x": 960,
       "y": 20,
       "w": 40,
@@ -1088,12 +1081,46 @@
       "w": 40,
       "h": 40,
       "rotation": 0
+    },
+    {
+      "x": 440,
+      "y": 460,
+      "w": 40,
+      "h": 40,
+      "slope": "left",
+      "flip": false,
+      "rotation": 0
+    },
+    {
+      "x": 640,
+      "y": 420,
+      "w": 40,
+      "h": 40,
+      "slope": "right",
+      "flip": false,
+      "rotation": 0
+    },
+    {
+      "x": 600,
+      "y": 460,
+      "w": 40,
+      "h": 40,
+      "slope": "right",
+      "flip": false,
+      "rotation": 0
+    },
+    {
+      "x": 640,
+      "y": 460,
+      "w": 40,
+      "h": 40,
+      "rotation": 0
     }
   ],
   "doors": [
     {
       "id": "door_1767226507573",
-      "x": 500,
+      "x": 520,
       "y": 500,
       "w": 120,
       "h": 16,
@@ -1170,8 +1197,8 @@
     },
     {
       "type": "perk",
-      "x": 660,
-      "y": 280,
+      "x": 640,
+      "y": 674,
       "perk": "doubleTap",
       "cost": 2000,
       "rotation": 0
@@ -1205,14 +1232,14 @@
     {
       "type": "mystery",
       "x": 640,
-      "y": 780,
+      "y": 820,
       "cost": 950,
       "rotation": 0
     },
     {
       "type": "wallbuy",
-      "x": 660,
-      "y": 420,
+      "x": 658,
+      "y": 386,
       "gun": "SMG",
       "cost": 1250,
       "rotation": 0
