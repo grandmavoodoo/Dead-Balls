@@ -130,7 +130,7 @@
 
 </div>
 <div id="menu">
-  <h1>🧟 DEAD BALLS</h1>
+  <h1>🧟 DAEAD BALLS</h1>
 
   <input type="file" id="mapLoader" accept=".json">
   <br><br>
@@ -543,7 +543,9 @@ window.setMusicVolume = function (v) {
           y: w.y,
           w: w.w,
           h: w.h,
-          rotation: w.rotation || 0
+          rotation: w.rotation || 0,
+          slope: w.slope || null,
+          flip: w.flip === true  
         });
       });
     }
@@ -2281,6 +2283,10 @@ function updatePowerDrops(now) {
     }
   }
 
+  function resolveWallCollision(entity, wall) {
+  resolveCircleWallCollision(entity, wall);
+}
+
   
   
   
@@ -2319,6 +2325,140 @@ function updatePowerDrops(now) {
       b.open = false;
     }
   }
+
+
+  function getSlopeTriangle(wall) {
+  const x = wall.x;
+  const y = wall.y;
+  const w = wall.w;
+  const h = wall.h;
+
+  if (wall.slope === 'left') {
+    return [
+      { x: x,     y: y + h },
+      { x: x + w, y: y + h },
+      { x: x,     y: y }
+    ];
+  }
+
+  if (wall.slope === 'right') {
+    return [
+      { x: x,     y: y + h },
+      { x: x + w, y: y + h },
+      { x: x + w, y: y }
+    ];
+  }
+
+  return null;
+}
+
+
+function pointInTriangle(px, py, tri) {
+  const [a, b, c] = tri;
+
+  function sign(p1, p2, p3) {
+    return (p1.x - p3.x) * (p2.y - p3.y) -
+           (p2.x - p3.x) * (p1.y - p3.y);
+  }
+
+  const d1 = sign({x: px, y: py}, a, b);
+  const d2 = sign({x: px, y: py}, b, c);
+  const d3 = sign({x: px, y: py}, c, a);
+
+  const hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+  const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+
+  return !(hasNeg && hasPos);
+}
+
+
+
+function resolveCircleTriangleCollision(circle, tri) {
+  let collided = false;
+
+  // --- EDGE COLLISION ---
+  for (let i = 0; i < 3; i++) {
+    const a = tri[i];
+    const b = tri[(i + 1) % 3];
+
+    const abx = b.x - a.x;
+    const aby = b.y - a.y;
+
+    const t = clamp(
+      ((circle.x - a.x) * abx + (circle.y - a.y) * aby) /
+      (abx * abx + aby * aby),
+      0, 1
+    );
+
+    const px = a.x + abx * t;
+    const py = a.y + aby * t;
+
+    const dx = circle.x - px;
+    const dy = circle.y - py;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < circle.radius) {
+      const overlap = circle.radius - dist;
+      const nx = dx / (dist || 1);
+      const ny = dy / (dist || 1);
+
+      circle.x += nx * overlap;
+      circle.y += ny * overlap;
+
+      collided = true;
+    }
+  }
+
+  // --- INSIDE TRIANGLE FIX (FLIP-SAFE) ---
+  if (pointInTriangle(circle.x, circle.y, tri)) {
+    let bestPen = Infinity;
+    let pushX = 0;
+    let pushY = 0;
+
+    for (let i = 0; i < 3; i++) {
+      const a = tri[i];
+      const b = tri[(i + 1) % 3];
+
+      const ex = b.x - a.x;
+      const ey = b.y - a.y;
+
+      // outward normal using triangle winding
+      let nx = ey;
+      let ny = -ex;
+
+      const len = Math.hypot(nx, ny) || 1;
+      nx /= len;
+      ny /= len;
+
+      const dist =
+        (circle.x - a.x) * nx +
+        (circle.y - a.y) * ny;
+
+      // flip normal if pointing inward
+      if (dist > 0) {
+        nx = -nx;
+        ny = -ny;
+      }
+
+      const pen = Math.abs(dist);
+
+      if (pen < bestPen) {
+        bestPen = pen;
+        pushX = nx;
+        pushY = ny;
+      }
+    }
+
+    // push fully out
+    circle.x += pushX * (circle.radius + bestPen);
+    circle.y += pushY * (circle.radius + bestPen);
+
+    collided = true;
+  }
+
+  return collided;
+}
+
 
 
   function revivePlayer() {
@@ -2457,31 +2597,200 @@ function updatePowerDrops(now) {
   }
 
 
-  function resolveCircleWallCollision(entity, wall) {
-    const r = entity.r || entity.radius || 12;
+  function drawSlopeWallGame(w) {
+  const x1 = w.x - w.w / 2;
+  const x2 = w.x + w.w / 2;
+  const y1 = w.y - w.h / 2;
+  const y2 = w.y + w.h / 2;
 
-  // Convert wall from center-based to min/max
-    const left   = wall.x - wall.w / 2;
-    const right  = wall.x + wall.w / 2;
-    const top    = wall.y - wall.h / 2;
-    const bottom = wall.y + wall.h / 2;
+  ctx.fillStyle = '#555';
+  ctx.beginPath();
 
-    const closestX = clamp(entity.x, left, right);
-    const closestY = clamp(entity.y, top, bottom);
+  const flipped = w.flip === true;
 
-    const dx = entity.x - closestX;
-    const dy = entity.y - closestY;
+  switch (w.slope) {
 
-    const distSq = dx * dx + dy * dy;
+    // ───────── LEFT SLOPE ─────────
+    case 'left':
+      if (!flipped) {
+        // normal
+        ctx.moveTo(x1, y2);
+        ctx.lineTo(x2, y2);
+        ctx.lineTo(x1, y1);
+      } else {
+        // flipped (upside down)
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y1);
+        ctx.lineTo(x1, y2);
+      }
+      break;
 
-    if (distSq < r * r) {
-      const dist = Math.sqrt(distSq) || 0.0001;
-      const overlap = r - dist;
+    // ───────── RIGHT SLOPE ─────────
+    case 'right':
+      if (!flipped) {
+        ctx.moveTo(x1, y2);
+        ctx.lineTo(x2, y2);
+        ctx.lineTo(x2, y1);
+      } else {
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y1);
+        ctx.lineTo(x2, y2);
+      }
+      break;
 
-      entity.x += (dx / dist) * overlap;
-      entity.y += (dy / dist) * overlap;
+    // ───────── UP SLOPE ─────────
+    case 'up':
+      if (!flipped) {
+        ctx.moveTo(x1, y2);
+        ctx.lineTo(x2, y2);
+        ctx.lineTo(x2, y1);
+      } else {
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y1);
+        ctx.lineTo(x1, y2);
+      }
+      break;
+
+    // ───────── DOWN SLOPE ─────────
+    case 'down':
+      if (!flipped) {
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y1);
+        ctx.lineTo(x1, y2);
+      } else {
+        ctx.moveTo(x1, y2);
+        ctx.lineTo(x2, y2);
+        ctx.lineTo(x2, y1);
+      }
+      break;
+
+    default:
+      return;
+  }
+
+  ctx.closePath();
+  ctx.fill();
+}
+
+
+
+
+  function resolveCircleSlopeCollision(entity, wall, r) {
+  const x = wall.x - wall.w / 2;
+  const y = wall.y - wall.h / 2;
+  const w = wall.w;
+  const h = wall.h;
+
+  const flipped = wall.flip === true;
+
+  // Define triangle points (MATCHES DRAW LOGIC)
+  let tri;
+
+  if (wall.slope === 'left') {
+    if (!flipped) {
+      // normal left slope
+      tri = [
+        { x: x,     y: y + h },
+        { x: x + w, y: y + h },
+        { x: x,     y: y }
+      ];
+    } else {
+      // flipped left slope (upside down)
+      tri = [
+        { x: x,     y: y },
+        { x: x + w, y: y },
+        { x: x,     y: y + h }
+      ];
     }
   }
+
+  else if (wall.slope === 'right') {
+    if (!flipped) {
+      // normal right slope
+      tri = [
+        { x: x,     y: y + h },
+        { x: x + w, y: y + h },
+        { x: x + w, y: y }
+      ];
+    } else {
+      // flipped right slope (upside down)
+      tri = [
+        { x: x,     y: y },
+        { x: x + w, y: y },
+        { x: x + w, y: y + h }
+      ];
+    }
+  } else {
+    return;
+  }
+
+  // Edge-by-edge circle vs triangle
+  for (let i = 0; i < 3; i++) {
+    const a = tri[i];
+    const b = tri[(i + 1) % 3];
+
+    const abx = b.x - a.x;
+    const aby = b.y - a.y;
+
+    const t = clamp(
+      ((entity.x - a.x) * abx + (entity.y - a.y) * aby) /
+      (abx * abx + aby * aby),
+      0, 1
+    );
+
+    const px = a.x + abx * t;
+    const py = a.y + aby * t;
+
+    const dx = entity.x - px;
+    const dy = entity.y - py;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < r) {
+      const overlap = r - dist;
+      const nx = dx / (dist || 1);
+      const ny = dy / (dist || 1);
+
+      entity.x += nx * overlap;
+      entity.y += ny * overlap;
+    }
+  }
+}
+
+
+
+
+  function resolveCircleWallCollision(entity, wall) {
+  const r = entity.r || entity.radius || 12;
+
+  // 🔺 SLOPE WALLS (TRIANGLES)
+  if (wall.slope === 'left' || wall.slope === 'right') {
+    resolveCircleSlopeCollision(entity, wall, r);
+    return;
+  }
+
+  // 🟦 NORMAL RECT WALLS (unchanged logic)
+  const left   = wall.x - wall.w / 2;
+  const right  = wall.x + wall.w / 2;
+  const top    = wall.y - wall.h / 2;
+  const bottom = wall.y + wall.h / 2;
+
+  const closestX = clamp(entity.x, left, right);
+  const closestY = clamp(entity.y, top, bottom);
+
+  const dx = entity.x - closestX;
+  const dy = entity.y - closestY;
+
+  const distSq = dx * dx + dy * dy;
+
+  if (distSq < r * r) {
+    const dist = Math.sqrt(distSq) || 0.0001;
+    const overlap = r - dist;
+
+    entity.x += (dx / dist) * overlap;
+    entity.y += (dy / dist) * overlap;
+  }
+}
+
 
 
   // ---------- NEW: Collision helpers ----------
@@ -2982,9 +3291,30 @@ if (player.hitsRemaining <= 0 && !player.downed) {
     
 
     // Player vs walls
-    for (const w of walls) {
-      resolveCircleWallCollision(player, w);
+    for (const wall of walls) {
+
+  if (wall.slope) {
+    // 🔺 slope collision
+    const rPlayer = player.r || player.radius || 12;
+    resolveCircleSlopeCollision(player, wall, rPlayer);
+
+    for (const z of zombies) {
+      const rZ = z.r || z.radius || 12;
+      resolveCircleSlopeCollision(z, wall, rZ);
     }
+
+  } else {
+    // 🧱 normal wall collision
+    resolveWallCollision(player, wall);
+
+    for (const z of zombies) {
+      resolveWallCollision(z, wall);
+    }
+  }
+}
+
+
+    
 
 
     // Handle round cooldown timer
@@ -3791,17 +4121,61 @@ MusicPlayer.init();
 
 
 
-    // =====================
-    // Draw walls (center-based, rotated)
-    // =====================
-    ctx.fillStyle = '#555';
-    for (const w of walls) {
-      ctx.save();
-      ctx.translate(w.x, w.y);
-      ctx.rotate((w.rotation || 0) * Math.PI / 180);
-      ctx.fillRect(-w.w / 2, -w.h / 2, w.w, w.h);
-      ctx.restore();
+   // =====================
+// Draw walls (center-based, rotated)
+// =====================
+for (const w of walls) {
+  ctx.save();
+  ctx.translate(w.x, w.y);
+  ctx.rotate((w.rotation || 0) * Math.PI / 180);
+
+  ctx.fillStyle = '#555';
+
+  if (w.slope) {
+    // 🔺 slope wall (triangle)
+    ctx.beginPath();
+
+    const flipped = w.flip === true;
+
+    if (w.slope === 'left') {
+      if (!flipped) {
+        // normal left slope
+        ctx.moveTo(-w.w / 2,  w.h / 2);
+        ctx.lineTo( w.w / 2,  w.h / 2);
+        ctx.lineTo(-w.w / 2, -w.h / 2);
+      } else {
+        // flipped left slope (upside down)
+        ctx.moveTo(-w.w / 2, -w.h / 2);
+        ctx.lineTo( w.w / 2, -w.h / 2);
+        ctx.lineTo(-w.w / 2,  w.h / 2);
+      }
     }
+
+    else if (w.slope === 'right') {
+      if (!flipped) {
+        // normal right slope
+        ctx.moveTo(-w.w / 2,  w.h / 2);
+        ctx.lineTo( w.w / 2, -w.h / 2);
+        ctx.lineTo( w.w / 2,  w.h / 2);
+      } else {
+        // flipped right slope (upside down)
+        ctx.moveTo(-w.w / 2, -w.h / 2);
+        ctx.lineTo( w.w / 2, -w.h / 2);
+        ctx.lineTo( w.w / 2,  w.h / 2);
+      }
+    }
+
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    // 🧱 normal wall
+    ctx.fillRect(-w.w / 2, -w.h / 2, w.w, w.h);
+  }
+
+  ctx.restore();
+}
+
+
 
 
     // =====================
