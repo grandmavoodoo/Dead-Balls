@@ -59,15 +59,14 @@
   .round-number {
    display: inline-block;
     margin-left: 6px;
-    font-size: 42px;          /* 🔥 BIG */
+    font-size: 42px;          
     font-weight: 900;
-    color: #e74c3c;           /* 🔴 RED */
+    color: #e74c3c;           
     text-shadow:
       0 0 6px rgba(231, 76, 60, 0.8),
       0 0 12px rgba(0, 0, 0, 0.8);
   }
 
-  /* Zombie counter (matches ROUND style but no big number) */
   .zombie-ui {
     margin-top: 4px;
    font-size: 14px;
@@ -78,9 +77,9 @@
   .zombie-number {
     display: inline-block;
     margin-left: 6px;
-    font-size: 14px;      /* same size as text */
+    font-size: 14px;      
     font-weight: 700;
-    color: #f1c40f;       /* yellow for visibility */
+    color: #f1c40f;       
   }
 
 
@@ -89,6 +88,10 @@
 </style>
 </head>
 <body>
+
+  <script src="scripts/player_stats.js"></script>
+
+
 <div id="ui">
   <div class="row round-ui">
     ROUND
@@ -141,6 +144,26 @@
 </div>
 
 <canvas id="game"></canvas>
+
+
+<div id="mysteryBoxDisplay" style="
+  position: absolute;
+  top: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 16px 28px;
+  background: rgba(0,0,0,0.85);
+  border: 3px solid gold;
+  border-radius: 12px;
+  font-size: 26px;
+  font-weight: bold;
+  color: gold;
+  display: none;
+  pointer-events: none;
+  z-index: 9999;
+">
+  ?
+</div>
 
 
 
@@ -196,6 +219,7 @@
   if (restartBtn) {
     restartBtn.onclick = () => {
       restartGame();
+      PlayerStats.reset();
     };
   }
 
@@ -294,12 +318,42 @@
   const ZOMBIE_STUCK_TIME = 15;     // seconds before considered stuck
   const ZOMBIE_STUCK_DIST = 2;      // px movement threshold
   const ZOMBIE_TELEPORT_RADIUS = 10 * 10; // 25 blocks × 20px grid
+  const POWER_DROP_CHANCE = 1 / 123; // ≈ 0.00813
+  const grenades = [];
+  const GRENADE_THROW_FORCE = 420;     // forward velocity
+  const GRENADE_UP_FORCE = 220;        // arc height
+  const GRENADE_FUSE = 1500;           // ms
+  const GRENADE_RADIUS = 5 * 20;      // 10 blocks (20px grid)
+  const GRENADE_THROW_DISTANCE = 6 * 20; // 6 blocks
+  const GRENADE_FUSE_TIME = 3000;
+  const grenadeExplosions = [];
+
+  const MONKEY_ATTRACT_TIME = 4000;   // how long zombies are attracted (ms)
+  const MONKEY_EXPLODE_TIME = 5500;   // total lifetime until explosion
+  const MONKEY_RADIUS = 100;          // BIGGER explosion radius
+
+
+
+  
+
+  const playerStats = {
+  kills: 0,
+  weaponUpgrades: 0,
+  downs: 0,
+  points: 0,
+  doorsOpened: 0
+};
+
+
   // ===== MYSTERY BOX SYSTEM =====
   let activeMysteryIndex = -1;
   let mysterySpinCount = 0;
   window.MASTER_VOLUME = window.MASTER_VOLUME ?? 0.6;
   window.musicVolume = window.musicVolume ?? 0.05;
   window.powerupVolume = 0.30;
+  window.roundChangeVolume = window.roundChangeVolume ?? 0.6;
+
+  
 
   const INTERACT_COOLDOWN_MS = 2000;
 
@@ -340,12 +394,19 @@ const powerupSlider = {
   dragging: false
 };
 
+const roundChangeSlider = {
+  x: 0, y: 0,
+  width: 180,
+  height: 6,
+  knobRadius: 8,
+  dragging: false
+};
   
 
   const PLAYER_DEFAULTS = {
     speed: 140,
     hitsMax: 3,
-   reviveDuration: 5
+   reviveDuration: 4.21
   };
 
 
@@ -414,6 +475,16 @@ window.setMasterVolume = v => {
   MASTER_VOLUME = Math.max(0, Math.min(1, v));
 };
 
+window.setRoundChangeVolume = v => {
+  window.roundChangeVolume = Math.max(0, Math.min(1, v));
+
+  // 🔥 APPLY IMMEDIATELY
+  if (window.RoundMusic) {
+    RoundMusic.applyVolume();
+  }
+};
+
+
 window.setMusicVolume = v => {
   window.musicVolume = Math.max(0, Math.min(1, v));
 
@@ -481,6 +552,22 @@ window.setMusicVolume = function (v) {
       return door.open === true;
     }
 
+    function openDoorAndLinked(door) {
+  if (!door) return;
+
+  const group = door.linkGroup || null;
+
+  for (const d of doors) {
+    if (d === door || (group && d.linkGroup === group)) {
+      d.open = true;
+
+      // 🔥 HARD-disable interaction
+      d.cost = 0;
+      d._disabled = true; // optional safety flag
+    }
+  }
+}
+
 
   
 
@@ -509,6 +596,7 @@ window.setMusicVolume = function (v) {
           h: d.h,
           rotation: d.rotation || 0,
           cost: d.cost,
+          linkGroup: d.linkGroup || null,
           open: false
         });
 
@@ -739,15 +827,35 @@ function withInteractCooldown(action) {
 
 
   for (const d of doors) {
-    interacts.push({
-      type: 'door',
-      x: d.x,
-      y: d.y,
-      cost: d.cost,
-      label: `Open Door (${d.cost})`,
-      action: () => tryBuyDoor(d)
-    });
+  // ❌ Never create an interact for an open door
+  if (d.open) continue;
+
+  // ❌ Never create an interact if this door is linked
+  // and ANY door in its group is open
+  if (d.linkGroup) {
+    let groupIsOpen = false;
+
+    for (const od of doors) {
+      if (od.linkGroup === d.linkGroup && od.open) {
+        groupIsOpen = true;
+        break;
+      }
+    }
+
+    if (groupIsOpen) continue;
   }
+
+  interacts.push({
+    type: 'door',
+    x: d.x,
+    y: d.y,
+    cost: d.cost,
+    label: `Open Door (${d.cost})`,
+    action: () => tryBuyDoor(d)
+  });
+}
+
+
 
 
   for (const u of upgradeStations) {
@@ -802,6 +910,7 @@ function withInteractCooldown(action) {
             if (player.points < t.cost) return;
 
             player.points -= t.cost;
+            PlayerStats.addTrapBuy();
 
             t.pending = true;
             t.activateAt = now + 2000;
@@ -826,6 +935,32 @@ function withInteractCooldown(action) {
   initMysteryBoxes();
 
 
+  function trySpawnPowerDrop(x, y) {
+  // 🎲 ONE roll per zombie
+  if (Math.random() > POWER_DROP_CHANCE) return;
+
+  // 🎁 Power-up pool (adjust if you want)
+  const pool = [
+    '2X',
+    'CARPENTER',
+    'INSTA',
+    'MAX',
+    'NUKE',
+    'DEATH'
+  ];
+
+  const type = pool[Math.floor(Math.random() * pool.length)];
+
+  powerDrops.push({
+    x,
+    y,
+    type,
+    spawnTime: performance.now()
+  });
+
+  playPowerupSpawnSound?.();
+}
+
 
     
 
@@ -845,9 +980,13 @@ function withInteractCooldown(action) {
 
 
   function gameOver() {
-    const go = document.getElementById('gameOver');
-    if (go) go.style.display = 'flex';
+  const go = document.getElementById('gameOver');
+  if (go) {
+    renderGameOverStats();
+    go.style.display = 'flex';
   }
+}
+
 
 
   function zombieBlockedByBarrier(z) {
@@ -969,10 +1108,46 @@ function withInteractCooldown(action) {
 }
 
 
+function onRoundEnded() {
+  if (roundTransitionTimer) return;
 
-    function updateZombieCounter() {
-      uiZombiesLeft.textContent = zombies.filter(z => z.alive !== false).length;
-      }
+  // 🔕 PLAY ROUND END SOUND (isolated)
+  RoundMusic.playEnd();
+  PlayerStats.addRoundSurvived();
+
+  roundTransitionTimer = setTimeout(() => {
+    round++;
+    uiRound.textContent = round;
+
+    // 🔔 ROUND START SOUND
+    startRoundSpawns();
+
+    roundTransitionTimer = null;
+  }, 2200);
+}
+
+
+
+
+
+
+
+let roundTransitionTimer = null;
+
+function updateZombieCounter() {
+  const alive = zombies.filter(z => z.alive !== false).length;
+  uiZombiesLeft.textContent = alive;
+
+  // Detect round end ONLY
+  if (alive === 0 && gameStarted && !roundTransitionTimer) {
+    onRoundEnded();
+    RoundMusic.playEnd();
+    PlayerStats.addRoundSurvived();
+  }
+}
+
+
+
 
 
 
@@ -1028,6 +1203,8 @@ function withInteractCooldown(action) {
 
   hitsMax: 3,
   hitsRemaining: 3,
+  grenades: 2,
+  grenadesMax: 5,
 
   // ✅ HEALTH REGEN
   lastHitTime: 0,        // timestamp of last damage
@@ -1060,6 +1237,44 @@ function withInteractCooldown(action) {
     lastRepairTime: 0
   }
 };
+
+
+// ===== ROUND CHANGE MUSIC =====
+function applyRoundChangeVolume() {
+  const v =
+    (window.MASTER_VOLUME ?? 1) *
+    (window.roundChangeVolume ?? 1);
+
+  // Only apply to persistent audio
+  if (RoundMusic.start) {
+    RoundMusic.start.volume = v;
+  }
+}
+
+
+// ===== ROUND CHANGE MUSIC =====
+const RoundMusic = {
+  start: new Audio('assets/audio/round_start.mp3'),
+
+  playStart() {
+    applyRoundChangeVolume();
+    this.start.currentTime = 0;
+    this.start.play().catch(() => {});
+  },
+
+  playEnd() {
+    const endSound = new Audio('assets/audio/round_end.mp3');
+
+    endSound.volume =
+      (window.MASTER_VOLUME ?? 1) *
+      (window.roundChangeVolume ?? 1);
+
+    endSound.play().catch(err => {
+      console.warn('Round end sound failed:', err);
+    });
+  }
+};
+
 
 
 
@@ -1134,6 +1349,7 @@ function withInteractCooldown(action) {
 
   // Round cooldown state
   let round = 1;
+  RoundMusic.playStart(); 
   let roundCooldown = false;
   let roundCooldownEnd = 0;
   let showRoundBanner = false;
@@ -1143,8 +1359,6 @@ function withInteractCooldown(action) {
   // Spawn control (batch spawning)
   let spawnRemaining = 0;
   let spawnTimer = 0;
-
-  // Map: barriers (rectangles) across corridors
 
 
 
@@ -1167,6 +1381,202 @@ function hitSlider(slider, mx, my) {
     my <= slider.y + slider.height + slider.knobRadius
   );
 }
+
+  const GRENADE_SPAWN_OFFSET = player.radius + 6;
+
+  function applyMonkeyAttraction(g) {
+  for (const z of zombies) {
+    if (!z.alive) continue;
+
+    z.forcedTarget = true;
+    z.forcedX = g.x;
+    z.forcedY = g.y;
+  }
+}
+
+
+
+
+  function throwGrenade() {
+  if (player.grenades <= 0 || player.downed) return;
+
+  player.grenades--;
+
+  const angle = player.angle;
+  const speed = 600;
+
+  grenades.push({
+    type: player.grenadeType || "normal", // 🔥 NEW
+    x: player.x,
+    y: player.y,
+    vx: Math.cos(angle) * speed,
+    vy: Math.sin(angle) * speed,
+    traveled: 0,
+    armed: false,
+    explodeAt: 0,
+    attractUntil: 0 // 🐒 monkey only
+  });
+}
+
+
+
+
+
+function grenadeHitsWall(x, y) {
+  for (const w of walls) {
+    if (
+      x > w.x &&
+      x < w.x + w.w &&
+      y > w.y &&
+      y < w.y + w.h
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+
+const explosionSound = new Audio('assets/gun_sounds/grenade_explode.mp3');
+explosionSound.volume = 0.6;
+
+function playExplosionSound() {
+  explosionSound.currentTime = 0;
+  explosionSound.play();
+}
+
+
+function explodeGrenade(g) {
+  grenadeExplosions.push({
+    x: g.x,
+    y: g.y,
+    radius:
+      g.type === "monkey" ? MONKEY_RADIUS : GRENADE_RADIUS,
+    startTime: performance.now(),
+    duration: 300 // ms
+  });
+
+  const radius =
+    g.type === "monkey" ? MONKEY_RADIUS : GRENADE_RADIUS;
+
+  // 💥 ZOMBIES
+  for (const z of zombies) {
+    if (!z.alive) continue;
+
+    const dx = z.x - g.x;
+    const dy = z.y - g.y;
+
+    if (dx * dx + dy * dy <= radius * radius) {
+      z.alive = false;
+      z.forcedTarget = false;
+      PlayerStats.addKill();
+    }
+  }
+
+  if (g.type === "monkey") {
+  for (const z of zombies) {
+    z.forcedTarget = false;
+  }
+}
+
+
+  // 💀 PLAYER DAMAGE
+  const pdx = player.x - g.x;
+  const pdy = player.y - g.y;
+
+  if (pdx * pdx + pdy * pdy <= radius * radius) {
+    if (player.hitsRemaining <= 1) {
+      // ☠️ Player dies
+      player.hitsRemaining = 0;
+      player.downed = true;
+      gameOver?.(); // if you have a game over handler
+    } else {
+      // 💥 Knock player to last hit
+      player.hitsRemaining = 1;
+      player.lastHitTime = performance.now();
+    }
+  }
+
+  playExplosionSound?.();
+}
+
+
+
+
+function updateGrenades(dt) {
+  const now = performance.now();
+
+  for (let i = grenades.length - 1; i >= 0; i--) {
+    const g = grenades[i];
+
+    // 🟢 Flying
+    if (!g.armed) {
+      const dx = g.vx * dt;
+      const dy = g.vy * dt;
+
+      g.x += dx;
+      g.y += dy;
+      g.traveled += Math.hypot(dx, dy);
+
+      if (g.traveled >= GRENADE_THROW_DISTANCE) {
+        g.vx = 0;
+        g.vy = 0;
+        g.armed = true;
+
+        if (g.type === "monkey") {
+          g.attractUntil = now + MONKEY_ATTRACT_TIME;
+          g.explodeAt = now + MONKEY_EXPLODE_TIME;
+        } else {
+          g.explodeAt = now + GRENADE_FUSE_TIME;
+        }
+      }
+    }
+    // 🔴 Armed
+    else {
+      // 🐒 Monkey attraction phase
+      if (g.type === "monkey" && now < g.attractUntil) {
+        applyMonkeyAttraction(g);
+      }
+
+      if (now >= g.explodeAt) {
+        explodeGrenade(g);
+
+        // release zombies after explosion
+        for (const z of zombies) z.forcedTarget = false;
+
+        grenades.splice(i, 1);
+      }
+    }
+  }
+}
+
+function drawGrenadeExplosions() {
+  const now = performance.now();
+
+  for (let i = grenadeExplosions.length - 1; i >= 0; i--) {
+    const e = grenadeExplosions[i];
+    const t = (now - e.startTime) / e.duration;
+
+    if (t >= 1) {
+      grenadeExplosions.splice(i, 1);
+      continue;
+    }
+
+    // Ease-out expansion
+    const progress = 1 - Math.pow(1 - t, 2);
+    const r = progress * e.radius;
+
+    ctx.strokeStyle = `rgba(255, 0, 0, ${1 - t})`;
+    ctx.lineWidth = 3;
+
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+
+
 
 
 
@@ -1234,6 +1644,25 @@ function hitSlider(slider, mx, my) {
   function setPowerupVolume(t) {
   window.powerupVolume = Math.max(0, Math.min(1, t));
 }
+canvas.addEventListener('mousedown', e => {
+  if (!gamePaused || !window.pauseRestartButton) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  const b = window.pauseRestartButton;
+
+  if (
+    mx >= b.x && mx <= b.x + b.w &&
+    my >= b.y && my <= b.y + b.h
+  ) {
+    // 🔥 RESTART GAME
+    gamePaused = false;
+    restartGame();
+    PlayerStats.reset();
+  }
+});
 
 
 canvas.addEventListener('mousedown', e => {
@@ -1254,6 +1683,18 @@ canvas.addEventListener('mousedown', e => {
   } else if (hitSlider(powerupSlider, mx, my)) {
     powerupSlider.dragging = true;
     updateSlider(powerupSlider, mx, setPowerupVolume);
+
+  } else if (hitSlider(roundChangeSlider, mx, my)) {
+    roundChangeSlider.dragging = true;
+    updateSlider(
+      roundChangeSlider,
+      mx,
+      v => {
+        window.roundChangeVolume = v;
+        applyRoundChangeVolume(); // 🔥 LIVE UPDATE
+      }
+
+    );
   }
 });
 
@@ -1272,12 +1713,20 @@ canvas.addEventListener('mousemove', e => {
   if (powerupSlider.dragging) {
     updateSlider(powerupSlider, mx, setPowerupVolume);
   }
+  if (roundChangeSlider.dragging) {
+    updateSlider(
+      roundChangeSlider,
+      mx,
+      v => (window.roundChangeVolume = v)
+    );
+  }
 });
 
 canvas.addEventListener('mouseup', () => {
   masterSlider.dragging = false;
   musicSlider.dragging = false;
   powerupSlider.dragging = false;
+  roundChangeSlider.dragging = false;
 });
 
 
@@ -1288,6 +1737,13 @@ canvas.addEventListener('mouseup', () => {
   // Input
     const keys = {};
     const mouse = { x: WIDTH/2, y: HEIGHT/2, down:false };
+
+    window.addEventListener('keydown', e => {
+  if (e.key.toLowerCase() === 'g') {
+    throwGrenade();
+  }
+});
+
 
 
     window.addEventListener('keydown', (e) => {
@@ -1478,6 +1934,35 @@ canvas.addEventListener('mouseup', () => {
     entity.y += wy;
   }
 
+function rebuildDoorInteracts() {
+  // Remove ALL existing door interacts
+  for (let i = interacts.length - 1; i >= 0; i--) {
+    if (interacts[i].type === 'door') {
+      interacts.splice(i, 1);
+    }
+  }
+
+  // Re-add only valid (closed & unopened-group) doors
+  for (const d of doors) {
+    if (d.open) continue;
+
+    if (d.linkGroup) {
+      const groupOpened = doors.some(
+        od => od.linkGroup === d.linkGroup && od.open
+      );
+      if (groupOpened) continue;
+    }
+
+    interacts.push({
+      type: 'door',
+      x: d.x,
+      y: d.y,
+      cost: d.cost,
+      label: `Open Door (${d.cost})`,
+      action: () => tryBuyDoor(d)
+    });
+  }
+}
 
 
   function resolveCircleRotatedRectCollision(entity, rect){
@@ -1568,7 +2053,6 @@ function playEmptyGunSound() {
   sfx.volume = window.MASTER_VOLUME ?? 0.6;
   sfx.play();
 }
-
 
 
 
@@ -1816,32 +2300,65 @@ function playEmptyGunSound() {
   player.points -= cost;
   mysterySpinCount++;
 
+  const roll = Math.random();
+
+  // 🐒 MONKEY BOMB — 12% chance
+  if (roll < 0.12) {
+    startMysteryRoll("🐒 MONKEY BOMB", () => {
+      console.log("MYSTERY BOX: MONKEY BOMB");
+
+      giveMonkeyBombs(); // 🔥 replaces grenades
+
+      // 📦 MOVE BOX CHECK
+      if (mysterySpinCount >= MYSTERY_MOVE_SPINS) {
+        mysterySpinCount = 0;
+        if (Math.random() < MYSTERY_MOVE_CHANCE) {
+          moveMysteryBox();
+        }
+      }
+    });
+
+    return; // ❗ STOP — no gun awarded
+  }
+
+  // 🔫 GUN ROLL
   const pick =
     MYSTERY_BOX_GUNS[Math.floor(Math.random() * MYSTERY_BOX_GUNS.length)];
 
-  const alreadyOwned = !!player.guns[pick.name];
+  startMysteryRoll(pick.name.toUpperCase(), () => {
+    const alreadyOwned = !!player.guns[pick.name];
 
-  // 🔒 ENFORCE MAX GUNS
-  if (!alreadyOwned && ownedGunCount() >= MAX_GUNS) {
-    removeCurrentGunIfNeeded();
-  }
-
-  // 🎁 Give gun if not owned
-  if (!player.guns[pick.name]) {
-    player.guns[pick.name] = structuredClone(pick);
-  }
-
-  player.currentGun = player.guns[pick.name];
-
-  // 📦 MOVE BOX CHECK
-  if (mysterySpinCount >= MYSTERY_MOVE_SPINS) {
-    mysterySpinCount = 0;
-
-    if (Math.random() < MYSTERY_MOVE_CHANCE) {
-      moveMysteryBox();
+    // 🔒 ENFORCE MAX GUNS
+    if (!alreadyOwned && ownedGunCount() >= MAX_GUNS) {
+      removeCurrentGunIfNeeded();
     }
-  }
+
+    // 🎁 Give gun if not owned
+    if (!player.guns[pick.name]) {
+      player.guns[pick.name] = structuredClone(pick);
+    }
+
+    player.currentGun = player.guns[pick.name];
+
+    // 📦 MOVE BOX CHECK
+    if (mysterySpinCount >= MYSTERY_MOVE_SPINS) {
+      mysterySpinCount = 0;
+      if (Math.random() < MYSTERY_MOVE_CHANCE) {
+        moveMysteryBox();
+      }
+    }
+  });
 }
+
+
+
+// ===== MYSTERY BOX REWARDS =====
+
+function giveMonkeyBombs() {
+  player.grenadeType = "monkey"; // replaces grenades
+  player.grenades = 3;
+}
+
 
 
 
@@ -1870,50 +2387,104 @@ function playEmptyGunSound() {
   }
 
 
+  const mysteryBoxDisplay = document.getElementById("mysteryBoxDisplay");
+
+let mysteryRolling = false;
+
+function getMysteryBoxPool() {
+  return [
+    "🐒 MONKEY BOMB",
+    ...MYSTERY_BOX_GUNS.map(g => g.name.toUpperCase())
+  ];
+}
+
+function startMysteryRoll(finalText, onFinish) {
+  if (mysteryRolling) return;
+  mysteryRolling = true;
+
+  const pool = getMysteryBoxPool();
+  mysteryBoxDisplay.style.display = "block";
+
+  let index = 0;
+
+  const interval = setInterval(() => {
+    mysteryBoxDisplay.textContent =
+      pool[index % pool.length];
+    index++;
+  }, 90);
+
+  setTimeout(() => {
+    clearInterval(interval);
+
+    // 🎯 FINAL RESULT
+    mysteryBoxDisplay.textContent = finalText;
+
+    setTimeout(() => {
+      mysteryBoxDisplay.style.display = "none";
+      mysteryRolling = false;
+      onFinish?.();
+    }, 1000);
+
+  }, 2000);
+}
+
+
+
 
   function restartGame() {
-    if (!LOADED_MAP) return;
+  if (!LOADED_MAP) return;
 
-    // ---- CLEAR ALL RUNTIME ARRAYS ----
-    zombies.length = 0;
-    bullets.length = 0;
-    powerDrops.length = 0;
+  // ---- CLEAR ALL RUNTIME ARRAYS ----
+  zombies.length = 0;
+  bullets.length = 0;
+  powerDrops.length = 0;
+  grenades.length = 0;           // ✅ clear active grenades
+  grenadeExplosions.length = 0;  // ✅ clear explosion visuals
+  gamePaused = false;
+  roundTransitionTimer = null;
 
   // ---- RESET PLAYER ----
-    player.alive = true;
-    player.downed = false;
-    player.hitsMax = 3;
-    player.hitsRemaining = 3;
-    player.points = 420;
-    player.perks = {
-      juggernog:false,
-      speedCola:false,
-      doubleTap:false,
-      staminUp:false,
-      quickRevive:false,
-      quickReviveUsed:false
-    };
+  player.alive = true;
+  player.downed = false;
+  player.hitsMax = 3;
+  player.hitsRemaining = 3;
+  player.points = 420;
+
+  // ✅ RESET GRENADES
+  player.grenadeType = "normal"; // back to regular grenades
+  player.grenades = 4;           // ← requested change
+  PlayerStats.reset();
+
+  player.perks = {
+    juggernog:false,
+    speedCola:false,
+    doubleTap:false,
+    staminUp:false,
+    quickRevive:false,
+    quickReviveUsed:false
+  };
 
   // ---- RESET GUNS ----
-    player.guns = {};
-    player.guns[pistol.name] = structuredClone(pistol);
-    player.currentGun = player.guns[pistol.name];
+  player.guns = {};
+  player.guns[pistol.name] = structuredClone(pistol);
+  player.currentGun = player.guns[pistol.name];
 
   // ---- RESET ROUND SYSTEM ----
-    round = 1;
-    roundCooldown = false;
-    spawnRemaining = 0;
-    aliveCount = 0;
+  round = 1;
+  RoundMusic.playStart();
+  roundCooldown = false;
+  spawnRemaining = 0;
+  aliveCount = 0;
 
   // ---- RELOAD MAP ----
-    loadMap(LOADED_MAP);
+  loadMap(LOADED_MAP);
 
   // ---- START ROUND ----
-    startRoundSpawns();
+  startRoundSpawns();
 
   // ---- HIDE GAME OVER ----
-    document.getElementById('gameOver').style.display = 'none';
-  }
+  document.getElementById('gameOver').style.display = 'none';
+}
 
 
 
@@ -2053,61 +2624,118 @@ function tryBuyPerk(perk, cost) {
   ctx.font = 'bold 48px system-ui';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2 - 140);
+  ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2 - 350);
+
+
 
   ctx.font = '20px system-ui';
 
   // ===== MASTER VOLUME =====
-  ctx.fillText(
-    `Gun Volume: ${Math.round(window.MASTER_VOLUME * 100)}%`,
-    canvas.width / 2,
-    canvas.height / 2 - 80
-  );
+const UI_Y_OFFSET = -210;
 
-  masterSlider.x = canvas.width / 2 - masterSlider.width / 2;
-  masterSlider.y = canvas.height / 2 - 55;
+// ===== GUN VOLUME =====
+ctx.fillText(
+  `Gun Volume: ${Math.round(window.MASTER_VOLUME * 100)}%`,
+  canvas.width / 2,
+  canvas.height / 2 - 80 + UI_Y_OFFSET
+);
 
-  drawSlider(masterSlider, window.MASTER_VOLUME);
+masterSlider.x = canvas.width / 2 - masterSlider.width / 2;
+masterSlider.y = canvas.height / 2 - 55 + UI_Y_OFFSET;
 
-  // ===== MUSIC VOLUME =====
-  ctx.fillText(
-    `Music Volume: ${Math.round(window.musicVolume * 100)}%`,
-    canvas.width / 2,
-    canvas.height / 2 - 10
-  );
+drawSlider(masterSlider, window.MASTER_VOLUME);
 
-  musicSlider.x = canvas.width / 2 - musicSlider.width / 2;
-  musicSlider.y = canvas.height / 2 + 15;
+// ===== MUSIC VOLUME =====
+ctx.fillText(
+  `Music Volume: ${Math.round(window.musicVolume * 100)}%`,
+  canvas.width / 2,
+  canvas.height / 2 - 10 + UI_Y_OFFSET
+);
 
-  drawSlider(musicSlider, window.musicVolume);
+musicSlider.x = canvas.width / 2 - musicSlider.width / 2;
+musicSlider.y = canvas.height / 2 + 15 + UI_Y_OFFSET;
 
+drawSlider(musicSlider, window.musicVolume);
 
-  // ===== POWER-UP VOLUME =====
+// ===== POWER-UP VOLUME =====
 ctx.fillText(
   `Power-Up Volume: ${Math.round(window.powerupVolume * 100)}%`,
   canvas.width / 2,
-  canvas.height / 2 + 50
+  canvas.height / 2 + 50 + UI_Y_OFFSET
 );
 
 powerupSlider.x = canvas.width / 2 - powerupSlider.width / 2;
-powerupSlider.y = canvas.height / 2 + 75;
+powerupSlider.y = canvas.height / 2 + 75 + UI_Y_OFFSET;
 
 drawSlider(powerupSlider, window.powerupVolume);
 
+// ===== ROUND CHANGE VOLUME =====
+ctx.fillText(
+  `Round Change Volume: ${Math.round(window.roundChangeVolume * 100)}%`,
+  canvas.width / 2,
+  canvas.height / 2 + 110 + UI_Y_OFFSET
+);
 
-  // Footer
-  ctx.font = '16px system-ui';
-  ctx.fillText('Press ESC to resume', canvas.width / 2, canvas.height / 2 + 125);
+roundChangeSlider.x = canvas.width / 2 - roundChangeSlider.width / 2;
+roundChangeSlider.y = canvas.height / 2 + 135 + UI_Y_OFFSET;
 
-  ctx.fillText('-- CONTROLS --', canvas.width / 2, canvas.height / 2 + 155);
-  ctx.fillText('W A S D = Move', canvas.width / 2, canvas.height / 2 + 170);
-  ctx.fillText('Mouse = Aim', canvas.width / 2, canvas.height / 2 + 185);
-  ctx.fillText('Left Click = Shoot', canvas.width / 2, canvas.height / 2 + 200);
-  ctx.fillText('R = Reload', canvas.width / 2, canvas.height / 2 + 215);
-  ctx.fillText('E = Interact', canvas.width / 2, canvas.height / 2 + 230);
-  ctx.fillText('1 = Swap Weapon', canvas.width / 2, canvas.height / 2 + 245);
+drawSlider(roundChangeSlider, window.roundChangeVolume);
 
-  ctx.restore();
+// ===== FOOTER / CONTROLS =====
+ctx.font = '16px system-ui';
+ctx.fillText('Press ESC to resume', canvas.width / 2, canvas.height / 2 + 175 + UI_Y_OFFSET);
+
+ctx.fillText('-- CONTROLS --', canvas.width / 2, canvas.height / 2 + 205 + UI_Y_OFFSET);
+ctx.fillText('W A S D = Move', canvas.width / 2, canvas.height / 2 + 220 + UI_Y_OFFSET);
+ctx.fillText('Mouse = Aim', canvas.width / 2, canvas.height / 2 + 235 + UI_Y_OFFSET);
+ctx.fillText('Left Click = Shoot', canvas.width / 2, canvas.height / 2 + 250 + UI_Y_OFFSET);
+ctx.fillText('R = Reload', canvas.width / 2, canvas.height / 2 + 265 + UI_Y_OFFSET);
+ctx.fillText('E = Interact', canvas.width / 2, canvas.height / 2 + 280 + UI_Y_OFFSET);
+ctx.fillText('1 = Swap Weapon', canvas.width / 2, canvas.height / 2 + 295 + UI_Y_OFFSET);
+ctx.fillText('G = Throw Grenades / Monkeys', canvas.width / 2, canvas.height / 2 + 310 + UI_Y_OFFSET);
+
+// ===== RESTART BUTTON (PAUSE MENU ONLY) =====
+if (gamePaused) {
+
+  const restartBtn = {
+    x: canvas.width / 2 - 110,
+    y: canvas.height / 2 + 125,
+    w: 220,
+    h: 44
+  };
+
+  // button background
+  ctx.fillStyle = '#8b0000';
+  ctx.fillRect(restartBtn.x, restartBtn.y, restartBtn.w, restartBtn.h);
+
+  // button border
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(restartBtn.x, restartBtn.y, restartBtn.w, restartBtn.h);
+
+  // button text
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 26px system-ui';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  ctx.fillText(
+    'RESTART GAME',
+    restartBtn.x + restartBtn.w / 2,
+    restartBtn.y + restartBtn.h / 2
+  );
+
+  // expose for click detection
+  window.pauseRestartButton = restartBtn;
+}
+
+
+
+ctx.restore();
+
+drawPauseStatsBar(ctx, canvas);
+
+
 }
 
 function checkZombiePassedBarrier(z, barrier) {
@@ -2349,6 +2977,7 @@ function checkZombiePassedBarrier(z, barrier) {
 
     player.points -= cost;
     upgradeGun(g);
+    PlayerStats.addUpgrade();
   }
 
 
@@ -2407,16 +3036,16 @@ function updatePowerDrops(now) {
 
   // Power-up drops
   function tryDropPower(x, y) {
-  const chance = 0.12; // ✅ 12% per kill (your comment was right, value was not)
+  const chance = 0.008; 
   if (Math.random() > chance) return;
 
   const weights = [
-    { t: 'INSTA',     w: 1.0 },
-    { t: 'NUKE',      w: 0.6 },
-    { t: '2X',        w: 1.0 },
-    { t: 'MAX',       w: 0.9 },
-    { t: 'CARPENTER', w: 0.8 },
-    { t: 'DEATH',     w: 0.7 }
+    { t: 'INSTA',     w: 0.35 },
+    { t: 'NUKE',      w: 0.5 },
+    { t: '2X',        w: 0.6 },
+    { t: 'MAX',       w: 0.3 },
+    { t: 'CARPENTER', w: 0.7 },
+    { t: 'DEATH',     w: 0.2 }
   ];
 
   const total = weights.reduce((a, b) => a + b.w, 0);
@@ -2462,36 +3091,45 @@ function updatePowerDrops(now) {
       for (const z of zombies) if (z.alive) { z.alive=false; awardKill(); tryDropPower(z.x,z.y); }
       // ✅ BONUS POINTS
       player.points += 420;
+      PlayerStats.addPoints(420);
     } else if (p.type === 'MAX') {
       for (const g of Object.values(player.guns)) {
         if (g.mag !== Infinity) { g.mag = g.magMax; g.reserve = g.reserveMax; }
       }
+      player.grenades = Math.min(
+        player.grenades + 5,
+        player.grenadesMax
+      );
     } else if (p.type === 'CARPENTER') {
       for (const b of barriers) { b.hp = b.hpMax; b.open = false; }
       // ✅ BONUS POINTS
       player.points += 200;
+      PlayerStats.addPoints(200);
     }
   }
 
   function tryBuyDoor(door) {
-    if (door.open) return;
-    if (player.points < door.cost) return;
+  if (!door || door.open) return;
+  if (player.points < door.cost) return;
 
-    // Pay
-    player.points -= door.cost;
+  // Pay once
+  player.points -= door.cost;
+  PlayerStats.addDoorOpened?.();
 
-    // Open the door
-    door.open = true;
+  // Open this door + all linked doors
+  const group = door.linkGroup ?? null;
 
-    // 🔴 REMOVE THE INTERACT CIRCLE
-    for (let i = interacts.length - 1; i >= 0; i--) {
-      const it = interacts[i];
-      if (it.type === 'door' && it.x === door.x && it.y === door.y) {
-        interacts.splice(i, 1);
-        break;
-      }
+  for (const d of doors) {
+    if (d === door || (group && d.linkGroup === group)) {
+      d.open = true;
     }
   }
+
+  // 🔥 IMPORTANT: remove ALL door interacts immediately
+  rebuildDoorInteracts();
+}
+
+
 
   function resolveWallCollision(entity, wall) {
   resolveCircleWallCollision(entity, wall);
@@ -2503,17 +3141,24 @@ function updatePowerDrops(now) {
 
   // Points
   function awardHit() {
-    let pts = 5;
-    if (activePowers.double) pts *= 2;
-    player.points += pts;
-  }
+  const pts = 5;
+
+  player.points += pts;        // ✅ wallet
+  PlayerStats.addPoints(pts);  // ✅ lifetime stats
+}
+
+
   function awardKill() {
     let pts = 100;
+    PlayerStats.addPoints(pts);
+    PlayerStats.addKill();
+
     if (activePowers.double) pts *= 2;
     player.points += pts;
   }
   function awardRepair() {
-    let pts = 5;
+    let pts = 15;
+    PlayerStats.addPoints(pts);
     if (activePowers.double) pts *= 2;
     player.points += pts;
   }
@@ -2523,7 +3168,7 @@ function updatePowerDrops(now) {
   // ⏱️ GLOBAL INTERACT COOLDOWN
   if (!canInteractNow()) return;
 
-  const add = Math.ceil(b.hpMax * 0.05); // 10%
+  const add = Math.ceil(b.hpMax * 0.10); // 10%
   const before = b.hp;
 
   // Allow rebuild from zero
@@ -2681,6 +3326,7 @@ function resolveCircleTriangleCollision(circle, tri) {
   function revivePlayer() {
     player.downed = false;
     player.alive = true;
+
     
 
     player.hitsRemaining = player.hitsMax;
@@ -3174,6 +3820,21 @@ function resolveCircleTriangleCollision(circle, tri) {
     );
   }
 
+    // 💣 GRENADES (UNDER RESERVE)
+  if (typeof player.grenades === 'number') {
+    ctx.font = '14px sans-serif';
+    ctx.fillStyle = '#ffb347'; // soft orange
+
+    ctx.fillText(
+      `💣 ${player.grenades}`,
+      x + hudW / 2 + 55,
+      y + hudH / 2 + 14
+    );
+  }
+
+
+
+
   // ⭐ UPGRADE LEVEL
   if (g.upgradeLevel && g.upgradeLevel > 0) {
     ctx.font = 'bold 13px sans-serif';
@@ -3328,7 +3989,7 @@ function resolveCircleTriangleCollision(circle, tri) {
 
   function maybeDropPowerUp(x, y) {
     // Base drop chance (classic zombies feel)
-    if (Math.random() > 0.15) return; // 15% overall drop chance
+    if (Math.random() > 0.008) return; // 15% overall drop chance
 
     const rarity = rollDropRarity(round);
     if (!rarity) return;
@@ -3357,6 +4018,7 @@ function resolveCircleTriangleCollision(circle, tri) {
 
   // Start first round
   startRoundSpawns();
+  RoundMusic.playStart();
 
   function update(dt) {
     // Update player aim
@@ -3373,7 +4035,7 @@ function resolveCircleTriangleCollision(circle, tri) {
     updateReloads(dt);
     updateHealthRegen(dt);
     updatePowerDrops(now);
-
+    updateGrenades(dt);
 
 
 
@@ -3408,16 +4070,18 @@ if (player.hitsRemaining <= 0 && !player.downed) {
 
     player.downed = true;
     player.alive = false;
-
+    
     // 🔥 START REVIVE
     player.reviveDuration = 5;
     player.reviveTimer = player.reviveDuration;
+    PlayerStats.addDown();
 
 
 
   } else {
     // NO QUICK REVIVE → GAME OVER
     player.alive = false;
+    PlayerStats.addDown();
     gameOver();
   }
 }
@@ -3542,7 +4206,9 @@ for (const wall of walls) {
     if (roundCooldown && now >= roundCooldownEnd) {
       roundCooldown = false;
       showRoundBanner = false;
+      RoundMusic.playStart();
       startRoundSpawns();
+      
     }
 
     for (const z of zombies) {
@@ -3589,43 +4255,56 @@ for (const wall of walls) {
 
     for (const t of zombieTraps) {
 
-      // ⏳ delayed activation
-      if (t.pending && now >= t.activateAt) {
-        t.pending = false;
-        t.active = true;
-        t.activeUntil = now + t.duration * 1000;
-      }
+  // ⏳ delayed activation
+  if (t.pending && now >= t.activateAt) {
+    t.pending = false;
+    t.active = true;
+    t.activeUntil = now + t.duration * 1000;
+  }
 
-      // ⏱️ auto shutoff → cooldown
-      if (t.active && now >= t.activeUntil) {
-        t.active = false;
-        t.cooldownUntil = now + t.cooldown * 1000;
-        continue;
-      }
+  // ⏱️ auto shutoff → cooldown
+  if (t.active && now >= t.activeUntil) {
+    t.active = false;
+    t.cooldownUntil = now + t.cooldown * 1000;
+    continue;
+  }
 
-      // ⛔ cooldown lock
-      if (now < t.cooldownUntil) continue;
+  // ⛔ cooldown lock
+  if (now < t.cooldownUntil) continue;
 
-      // ⛔ inactive
-      if (!t.active) continue;
+  // ⛔ inactive
+  if (!t.active) continue;
 
-      // 🔥 zombies
-      for (const z of zombies) {
-        if (!z.alive) continue;
+  // 🔥 zombies
+  for (const z of zombies) {
+    if (!z.alive) continue;
 
-        if (
-          circleRectHit(
-            z.x, z.y, z.r,
-            t.x - t.w / 2,
-            t.y - t.h / 2,
-            t.w,
-            t.h
-          )
-        ) {
-          z.alive = false;
-          player.points += 25;
-        }
-      }
+    // 🔒 one-time safety init
+    if (z.killedByTrap == null) z.killedByTrap = false;
+    if (z.killedByTrap) continue;
+
+    if (
+      circleRectHit(
+        z.x, z.y, z.r,
+        t.x - t.w / 2,
+        t.y - t.h / 2,
+        t.w,
+        t.h
+      )
+    ) {
+      z.alive = false;
+      z.killedByTrap = true;
+
+      const pts = 25;
+      player.points += pts;
+
+      // 📊 STATS (ONCE)
+      PlayerStats.addPoints(pts);
+      PlayerStats.addKill();
+      PlayerStats.addTrapKill();
+    }
+  }
+
 
   // ☠️ PLAYER DAMAGE FROM TRAP
   if (
@@ -3813,89 +4492,116 @@ for (const wall of walls) {
     for (const z of zombies) {
       if (!z.alive) continue;
       aliveCount++;
+    z.skipMove = false;
+  // ===============================
+  // MONKEY BOMB OVERRIDE (HARD OVERRIDE)
+  // ===============================
+  if (z.forcedTarget) {
+    // Ignore ALL blockers
+    z.skipMove = false;
+    z.blockedByBarrier = null;
 
-      // Target barrier center if intact on their side; else player
-      // ---------- Zombie targeting ----------
-      let targetX = player.x;
-      let targetY = player.y;
+    const dx = z.forcedX - z.x;
+    const dy = z.forcedY - z.y;
+    const dist = Math.hypot(dx, dy) || 1;
 
-      // Distance to player
-      const dxp = player.x - z.x;
-      const dyp = player.y - z.y;
-      const distPlayer = Math.hypot(dxp, dyp);
-      
-      const fearing = player.zombieFearTimer > 0;
+    const nx = dx / dist;
+    const ny = dy / dist;
 
-        if (fearing) {
-          // Run away from player
-          const dx = z.x - player.x;
-          const dy = z.y - player.y;
-          const len = Math.hypot(dx, dy) || 1;
+    // 🔥 DIRECT POSITION MOVE (bypasses freeze bugs)
+    z.x += nx * z.speed * dt;
+    z.y += ny * z.speed * dt;
 
-          targetX = z.x + (dx / len) * 100;
-          targetY = z.y + (dy / len) * 100;
-        } else {
-          // Normal chase
-          targetX = player.x;
-          targetY = player.y;
-        }
+    // Optional facing
+    z.angle = Math.atan2(ny, nx);
 
-      // Assume player by default
-      let chasingPlayer = true;
-
-      const b = z.targetBarrier;
-      // ===============================
-// ZOMBIE → BARRIER / PLAYER LOGIC
-// ===============================
-
-// Default: chase player
-
-// Only consider barriers if this zombie spawned behind one
-if (
-  z.spawnedBehindBarrier &&
-  z.targetBarrier &&
-  !z.targetBarrier.open
-) {
-  const b = z.targetBarrier;
-
-  const bx = b.x + b.w / 2;
-  const by = clamp(z.y, b.y, b.y + b.h);
-
-  const distBarrier = Math.hypot(z.x - bx, z.y - by);
-
-  // If barrier is closer than player → attack barrier
-  if (distBarrier < distPlayer) {
-    chasingPlayer = false;
-    targetX = bx;
-    targetY = by;
-
-    // ----- Barrier attack logic -----
-    // ----- Barrier attack logic -----
-    if (distBarrier <= 10) {
-
-  // ⛔ Safety guard — expired / invalid zombies cannot hit barriers
-      if (!z.spawnedBehindBarrier || !z.targetBarrier) continue;
-
-      z.blockedByBarrier = b;
-
-      z.barrierHitCooldown -= dt;
-      if (z.barrierHitCooldown <= 0) {
-        b.hp -= z.attackBarrierDps;
-        z.barrierHitCooldown = 0.5;
-
-        if (b.hp <= 0) {
-          b.hp = 0;
-          b.open = true;
-          z.blockedByBarrier = null;
-        }
-      }
-
-  // Stop movement ONLY when attacking barrier
-  z.skipMove = true;
-}
-
+    continue; // ⛔ skip ALL other logic
   }
-}
+
+
+  // ===============================
+  // NORMAL TARGETING LOGIC
+  // ===============================
+
+  let targetX = player.x;
+  let targetY = player.y;
+
+  const dxp = player.x - z.x;
+  const dyp = player.y - z.y;
+  const distPlayer = Math.hypot(dxp, dyp);
+
+  const fearing = player.zombieFearTimer > 0;
+
+  if (fearing) {
+    // Run away from player
+    const dx = z.x - player.x;
+    const dy = z.y - player.y;
+    const len = Math.hypot(dx, dy) || 1;
+
+    targetX = z.x + (dx / len) * 100;
+    targetY = z.y + (dy / len) * 100;
+  } else {
+    targetX = player.x;
+    targetY = player.y;
+  }
+
+  let chasingPlayer = true;
+
+  // ===============================
+  // BARRIER LOGIC
+  // ===============================
+  if (
+    z.spawnedBehindBarrier &&
+    z.targetBarrier &&
+    !z.targetBarrier.open
+  ) {
+    const b = z.targetBarrier;
+
+    const bx = b.x + b.w / 2;
+    const by = clamp(z.y, b.y, b.y + b.h);
+
+    const distBarrier = Math.hypot(z.x - bx, z.y - by);
+
+    if (distBarrier < distPlayer) {
+      chasingPlayer = false;
+      targetX = bx;
+      targetY = by;
+
+      // ----- Barrier attack -----
+      if (distBarrier <= 10) {
+        if (!z.spawnedBehindBarrier || !z.targetBarrier) continue;
+
+        z.blockedByBarrier = b;
+
+        z.barrierHitCooldown -= dt;
+        if (z.barrierHitCooldown <= 0) {
+          b.hp -= z.attackBarrierDps;
+          z.barrierHitCooldown = 0.3;
+
+          if (b.hp <= 0) {
+            b.hp = 0;
+            b.open = true;
+            z.blockedByBarrier = null;
+          }
+        }
+
+        z.skipMove = true;
+      }
+    }
+  }
+
+  // ===============================
+  // FINAL MOVEMENT
+  // ===============================
+  if (!z.skipMove) {
+    const dx = targetX - z.x;
+    const dy = targetY - z.y;
+    const len = Math.hypot(dx, dy) || 1;
+
+    z.vx = (dx / len) * z.speed;
+    z.vy = (dy / len) * z.speed;
+  }
+
 
 // If not attacking barrier → chase player
 if (chasingPlayer) {
@@ -4024,7 +4730,7 @@ if (!z.skipMove) {
         player.lastHitTime = performance.now(); // 🔥 REQUIRED
 
 
-        z.playerHitCooldown = 1.0;
+        z.playerHitCooldown = 0.5;
 
     // ===== PLAYER DOWNED LOGIC (FIXED) =====
 
@@ -4039,6 +4745,13 @@ if (!z.skipMove) {
     if (aliveCount === 0 && spawnRemaining === 0 && !roundCooldown) {
       round += 1;
       startRoundCooldown();
+      RoundMusic.playEnd();
+      PlayerStats.addRoundSurvived();
+      player.grenades = Math.min(
+        player.grenades + 2,
+        player.grenadesMax
+      );
+
     }
 
 
@@ -4291,13 +5004,43 @@ const MusicPlayer = {
 MusicPlayer.init();
 
 
-  
+  function drawGrenades() {
+  ctx.save();
+
+  for (const g of grenades) {
+    const now = performance.now();
+
+    // Grenade color (flash near explosion)
+    let bodyColor = '#2ecc71';
+
+    if (g.armed) {
+      const fuse =
+        g.type === "monkey"
+          ? MONKEY_EXPLODE_TIME
+          : GRENADE_FUSE_TIME;
+
+      const t = (g.explodeAt - now) / fuse;
+      if (t < 0.3) bodyColor = '#ff3b3b';
+    }
+
+    // 🧨 Grenade body
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.arc(g.x, g.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+
 
 
 
 
   function draw() {
     // ✅ ALWAYS start clean
+    
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -4450,8 +5193,6 @@ for (const w of walls) {
     }
 
     // Interactables (dynamic labels for wall-buys showing ammo price)
-    // Interactables (dynamic labels for wall-buys showing ammo price)
-    // Interactables (dynamic labels + mystery box active state)
     for (const i of interacts) {
 
       // ⭐ MYSTERY BOX COLOR LOGIC
@@ -4547,6 +5288,8 @@ for (const w of walls) {
       ctx.fill();
     }
 
+    drawGrenades();
+    drawGrenadeExplosions();
     // Zombies
     for (const z of zombies) {
       if (!z.alive) continue;
@@ -4672,7 +5415,6 @@ if (player.downed) {
     drawPerkIcons();
     drawPowerUpIcons();
     updateZombieUI();
-
 
   }
 
