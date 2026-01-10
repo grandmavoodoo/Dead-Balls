@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Zombies Map Editor</title>
+<style>
+
+  .tool-btn.active {
+    background: #0f6;
+    color: #000;
+    font-weight: bold;
+  }
+
+body {
+  margin:0;
+  display:flex;
+  background:#111;
+  color:#eee;
+  font-family:sans-serif;
+}
+#tools {
+  width:300px;
+  padding:10px;
+  background:#1c1c1c;
+  border-right:2px solid #333;
+}
+button, select {
+  width:100%;
+  margin-bottom:6px;
+}
+canvas {
+  background:#222;
+  cursor:crosshair;
+}
+textarea {
+  width:100%;
+  height:200px;
+  background:#000;
+  color:#0f0;
+}
+hr { border-color:#333; }
+</style>
+</head>
+<body>
+  
+
+  <div id="licenseScreen" style="
+  position:fixed;
+  inset:0;
+  background:#000;
+  color:#0f0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  z-index:9999;
+  font-family:monospace;
+">
+  <h1>🧟 MAP EDITOR</h1>
+  <h2>Go to the Discord to unlock: https://discord.gg/4e9Gaf5E</h2>
+
+  <input
+    id="licenseInput"
+    placeholder="Enter Product Key"
+    style="padding:10px;width:280px;text-align:center;font-size:16px"
+  >
+
+  <button onclick="unlockEditor()" style="
+    margin-top:10px;
+    padding:10px 20px;
+    font-size:16px;
+    cursor:pointer
+  ">
+    Unlock Editor
+  </button>
+
+  <p id="licenseError" style="color:#f66;margin-top:10px;"></p>
+</div>
+
+
+<div id="tools">
+  <h3>Tools - f1 to undo </h3>
+  
+  <!-- <button onclick="resetProductKey()" style="background:#400;color:#f66;font-weight:bold;"> 🔒 Reset Product Key </button>  -->
+
+  <button class="tool-btn" data-tool="barrier" onclick="setTool('barrier')">Barrier (Vertical)</button>
+  <button class="tool-btn" data-tool="hbarrier" onclick="setTool('hbarrier')">Barrier (Horizontal)</button>
+  <button class="tool-btn" data-tool="wall" onclick="setTool('wall')">Wall</button>
+  <button class="tool-btn" data-tool="slope_left" onclick="setTool('slope_left')">Slope Wall (Left)</button>
+  <button class="tool-btn" data-tool="slope_right" onclick="setTool('slope_right')">Slope Wall (Right)</button>
+  <button onclick="flipSelectedSlope()">Flip Slope (Upside Down)</button>
+
+  <button class="tool-btn" data-tool="wallbuy" onclick="setTool('wallbuy')">Wall Buy</button>
+  <select id="wallGun">
+    <option value="SMG">SMG</option>
+    <option value="SHOTGUN">Shotgun</option>
+    <option value="AR">AR</option>
+    <option value="Sniper">sniper</option>
+    <option value="M1 SUS">M1 SUS</option>
+  </select>
+
+  <button class="tool-btn" data-tool="perk" onclick="setTool('perk')">Perk</button>
+
+  <select id="perkSelect">
+    <option value="juggernog">Juggernog</option>
+    <option value="speedCola">Speed Cola</option>
+    <option value="doubleTap">Double Tap</option>
+    <option value="staminUp">Stamin-Up</option>
+    <option value="quickRevive">Quick Revive</option>
+  </select>
+  <button class="tool-btn" data-tool="mystery" onclick="setTool('mystery')">Mystery Box</button>
+  <button class="tool-btn" data-tool="upgrade" onclick="setTool('upgrade')">Upgrade Station</button>
+  <button class="tool-btn" data-tool="spawn" onclick="setTool('spawn')">Zombie Spawn</button>
+  <button class="tool-btn" data-tool="playerspawn" onclick="setTool('playerspawn')">Player Spawn</button>
+  <button class="tool-btn" data-tool="door_h" onclick="setTool('door_h')">Door (Horizontal)</button>
+  <button class="tool-btn" data-tool="door_v" onclick="setTool('door_v')">Door (Vertical)</button>
+  <button onclick="setTool('trap_h')">Zombie Trap (Horizontal)</button>
+  <button onclick="setTool('trap')">Zombie Trap (Vertical)</button>
+  <hr>
+
+  <button onclick="setTool('move')">MOVE / SELECT</button>
+  <button onclick="toggleGrid()">Snap to Grid</button>
+  <button onclick="deleteSelected()" style="color:#f66;">DELETE Selected OBJ</button>
+  <button onclick="toggleDoorDoorLinkMode()">🔗 Link Doors</button>
+  <span id="doorDoorLinkStatus" style="font-size:12px;color:#0a0;">OFF</span>
+  <button onclick="toggleDoorLinkMode()">🔗 Door–Spawn Linking</button>
+  <span id="linkModeStatus" style="font-size:12px;color:#aaa;">OFF</span>
+  <hr>
+
+  <div id="doorProps" style="display:none;">
+    <h4>Door Properties</h4>
+
+    <label>Door Price</label>
+    <input
+      id="doorCostInput"
+      type="number"
+      min="0"
+      step="50"
+      style="width:100%"
+    />
+  </div>
+
+  <hr>
+
+<div id="propsPanel" style="display:none;">
+  <h4 id="propsTitle">Properties</h4>
+
+  <!-- Cost -->
+  <label>Cost</label>
+  <input id="propCost" type="number" min="0" step="50" style="width:100%" />
+  <!-- Trap Duration -->
+  <!-- Trap Cooldown -->
+  <div id="trapCooldownRow" style="display:none;">
+    <label>Trap Cooldown (seconds)</label>
+    <input
+      id="propTrapCooldown"
+      type="number"
+      min="0"
+      step="1"
+      style="width:100%"
+    />
+  </div>
+
+  
+  <div id="trapDurationRow" style="display:none;">
+    <label>Trap Duration (seconds)</label>
+    <input
+      id="propTrapDuration"
+      type="number"
+      min="1"
+      step="1"
+      style="width:100%"
+    />
+  </div>
+
+
+  <!-- Wall Buy Weapon -->
+  <div id="wallGunRow" style="display:none;">
+    <label>Wall Buy Weapon</label>
+    <select id="propWallGun">
+      <option value="SMG">SMG</option>
+      <option value="SHOTGUN">Shotgun</option>
+      <option value="AR">AR</option>
+      <option value="Sniper">sniper</option>
+      <option value="M1 SUS">M1 SUS</option>
+      </select>
+    </div>
+
+    <!-- Perk -->
+    <div id="perkRow" style="display:none;">
+      <label>Perk Type</label>
+      <select id="propPerk">
+        <option value="juggernog">Juggernog</option>
+        <option value="speedCola">Speed Cola</option>
+        <option value="doubleTap">Double Tap</option>
+        <option value="staminUp">Stamin-Up</option>
+        <option value="quickRevive">Quick Revive</option>
+      </select>
+    </div>
+  </div>
+
+
+  <hr>
+
+    <button onclick="saveMap()">💾 EXPORT MAP (JSON)</button>
+
+    <input type="file" id="loadMapInput" accept=".json" style="display:none">
+    <button onclick="document.getElementById('loadMapInput').click()">📂 Load Map</button>
+
+
+
+  <hr>
+    <h4>Map Size</h4>
+
+    <label>Width</label>
+    <input id="mapWidth" type="number" value="1250" style="width:100%">
+
+    <label>Height</label>
+    <input id="mapHeight" type="number" value="1250" style="width:100%">
+
+    <button onclick="resizeMap()">Apply Map Size</button>
+
+
+
+
+  
+
+
+  <hr>
+
+  <button onclick="exportMap()">Edit MAP JSON CODE</button>
+  <textarea id="output"></textarea>
+</div>
+
+<canvas id="map" width="1250" height="1250"></canvas>
+
+<script>
+
+const LICENSE_SECRET = "SUS_ZOMBIES_EDITOR";
+
+function hashKey(key) {
+  let h = 0;
+  const str = key + LICENSE_SECRET;
+  for (let i = 0; i < str.length; i++) {
+    h = (h << 5) - h + str.charCodeAt(i);
+    h |= 0;
+  }
+  return h;
+}
+
+function unlockEditor() {
+  const input = document.getElementById("licenseInput").value.trim();
+  const error = document.getElementById("licenseError");
+
+  if (!input.startsWith("ZMAP-")) {
+    error.textContent = "Invalid product key format";
+    return;
+  }
+
+  const stored = JSON.parse(localStorage.getItem("VALID_MAP_KEYS") || "[]");
+  const hashed = hashKey(input);
+
+  if (!stored.includes(hashed)) {
+    error.textContent = "Product key not recognized";
+    return;
+  }
+
+  localStorage.setItem("MAP_EDITOR_UNLOCKED", "true");
+  document.getElementById("licenseScreen").style.display = "none";
+}
+
+
+window.addEventListener("load", () => {
+  if (localStorage.getItem("MAP_EDITOR_UNLOCKED") === "true") {
+    const screen = document.getElementById("licenseScreen");
+    if (screen) screen.style.display = "none";
+  }
+});
+
+
+
+const canvas = document.getElementById('map');
+const ctx = canvas.getContext('2d');
+const PICK_RADIUS = 8;     // forgiving click radius
+const PIVOT_RADIUS = 4;   // size of the center circle
+const zombieTraps = [];
+
+let tool = 'barrier';
+let selected = [];
+let dragging = false;
+let rotating = false;
+let dragOffsets = [];
+let snap = false;
+let lastAngle = 0;
+let undoCaptured = false;
+let selectedDoor = null;
+let doorLinkMode = false;
+let selectedLinkDoor = null;
+let nextDoorId = 1;
+let selectedInteract = null;
+let doorDoorLinkMode = false;
+let firstLinkedDoor = null;
+let nextDoorLinkGroupId = 1;
+
+
+window.addEventListener('load', () => {
+  setTool(tool);
+});
+
+
+
+const GRID = 20;
+
+
+
+
+const mapData = {
+  width: canvas.width,
+  height: canvas.height,
+  barriers:[],
+  walls:[],
+  doors:[],
+  interacts:[],
+  spawns:[],
+  playerSpawns:[]
+};
+
+function toggleDoorLinkMode() {
+  doorLinkMode = !doorLinkMode;
+  selectedLinkDoor = null;
+
+  document.getElementById('linkModeStatus').textContent =
+    doorLinkMode ? 'ON (select door)' : 'OFF';
+
+  draw();
+}
+
+
+
+function resizeMap() {
+  const w = parseInt(document.getElementById('mapWidth').value);
+  const h = parseInt(document.getElementById('mapHeight').value);
+
+  if (w < 1250 || h < 1250) {
+    alert('Map too small');
+    return;
+  }
+
+  // 🔥 keep EVERYTHING in sync
+  mapData.width = w;
+  mapData.height = h;
+  canvas.width = w;
+  canvas.height = h;
+
+  draw();
+}
+
+
+function drawMapBorder() {
+  ctx.save();
+  ctx.strokeStyle = '#f00';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(0, 0, mapData.width, mapData.height);
+  ctx.restore();
+}
+
+
+/* ---------- SAVE MAP ---------- */
+function saveMap() {
+  const data = JSON.stringify(mapData, null, 2);
+
+  const blob = new Blob([data], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "zombies_map.json";
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+
+
+/* ---------- LOAD MAP ---------- */
+document.getElementById('loadMapInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const loaded = JSON.parse(reader.result);
+
+      // Basic validation
+      if (!loaded.width || !loaded.height) {
+        alert("Invalid map file");
+        return;
+      }
+
+      // 🔥 MUTATE mapData (do NOT reassign)
+      mapData.width = loaded.width;
+      mapData.height = loaded.height;
+
+      mapData.barriers.length = 0;
+      mapData.walls.length = 0;
+      mapData.interacts.length = 0;
+      mapData.spawns.length = 0;
+      mapData.playerSpawns.length = 0;
+      mapData.doors.length = 0;
+
+      mapData.barriers.push(...(loaded.barriers || []));
+      mapData.walls.push(...(loaded.walls || []));
+      mapData.interacts.push(...(loaded.interacts || []));
+      mapData.spawns.push(...(loaded.spawns || []));
+      mapData.playerSpawns.push(...(loaded.playerSpawns || []));
+      mapData.doors.push(...(loaded.doors || []));
+
+      // Resize canvas + inputs
+      canvas.width = mapData.width;
+      canvas.height = mapData.height;
+      document.getElementById('mapWidth').value = mapData.width;
+      document.getElementById('mapHeight').value = mapData.height;
+
+      selected.length = 0;
+      undoStack.length = 0;
+
+      draw();
+      alert("Map loaded successfully!");
+    } catch (err) {
+      alert("Failed to load map");
+      console.error(err);
+    }
+  };
+
+  reader.readAsText(file);
+});
+
+
+
+function showDoorProps(door) {
+  const panel = document.getElementById('doorProps');
+  const costInput = document.getElementById('doorCostInput');
+
+  panel.style.display = 'block';
+  costInput.value = door.cost ?? 1250;
+
+  costInput.oninput = () => {
+    door.cost = parseInt(costInput.value) || 0;
+  };
+}
+
+function hideDoorProps() {
+  document.getElementById('doorProps').style.display = 'none';
+  selectedDoor = null;
+}
+
+
+
+// ---------- UNDO SYSTEM ----------
+const undoStack = [];
+const MAX_UNDO = 50;
+
+function deepClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+function pushUndoState() {
+  undoStack.push(deepClone(mapData));
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+}
+
+function toggleDoorDoorLinkMode() {
+  doorDoorLinkMode = !doorDoorLinkMode;
+  firstLinkedDoor = null;
+
+  document.getElementById('doorDoorLinkStatus').textContent =
+    doorDoorLinkMode ? 'ON (select first door)' : 'OFF';
+
+  draw();
+}
+
+
+function resetProductKey() {
+  if (!confirm("Reset product key and lock the editor?")) return;
+
+  // Remove unlock + valid keys
+  localStorage.removeItem("MAP_EDITOR_UNLOCKED");
+  localStorage.removeItem("VALID_MAP_KEYS");
+
+  // Show license screen again
+  const screen = document.getElementById("licenseScreen");
+  if (screen) screen.style.display = "flex";
+
+  // Clear input & error
+  const input = document.getElementById("licenseInput");
+  const error = document.getElementById("licenseError");
+  if (input) input.value = "";
+  if (error) error.textContent = "";
+
+  alert("Product key reset. Editor locked.");
+}
+
+
+function undo() {
+  if (undoStack.length === 0) return;
+
+  const prev = undoStack.pop();
+
+  // 🔥 MUTATE existing mapData (do NOT reassign)
+  mapData.barriers.length = 0;
+  mapData.walls.length = 0;
+  mapData.interacts.length = 0;
+  mapData.spawns.length = 0;
+  mapData.playerSpawns.length = 0;
+  mapData.doors.length = 0;
+
+  mapData.barriers.push(...prev.barriers);
+  mapData.walls.push(...prev.walls);
+  mapData.interacts.push(...prev.interacts);
+  mapData.spawns.push(...prev.spawns);
+  mapData.playerSpawns.push(...prev.playerSpawns);
+  mapData.doors.push(...(prev.doors || []));
+
+  selected.length = 0;
+  draw();
+}
+
+
+
+window.addEventListener('keydown', e => {
+  if (e.key === 'F1') {
+    e.preventDefault(); // block browser help
+    undo();
+  }
+});
+
+
+function isPlacementTool(t) {
+  return [
+    'barrier',
+    'hbarrier',
+    'wall',
+    'wall_tri_left',
+    'wall_tri_right',
+    'wallbuy',
+    'perk',
+    'mystery',
+    'upgrade',
+    'spawn',
+    'playerspawn',
+    'door_h',
+    'door_v'
+  ].includes(t);
+}
+
+
+function showProps(obj) {
+  const panel = document.getElementById('propsPanel');
+  const title = document.getElementById('propsTitle');
+  const cost = document.getElementById('propCost');
+  const wallGunRow = document.getElementById('wallGunRow');
+  const perkRow = document.getElementById('perkRow');
+  const wallGun = document.getElementById('propWallGun');
+  const perk = document.getElementById('propPerk');
+  const trapDurationRow = document.getElementById('trapDurationRow');
+  const trapDurationInput = document.getElementById('propTrapDuration');
+  const trapCooldownRow = document.getElementById('trapCooldownRow');
+  const trapCooldownInput = document.getElementById('propTrapCooldown');
+
+
+
+  panel.style.display = 'block';
+  wallGunRow.style.display = 'none';
+  perkRow.style.display = 'none';
+  trapDurationRow.style.display = 'none';
+  trapCooldownRow.style.display = 'none';
+
+
+  // COST (doors + all interacts)
+  cost.value = obj.cost ?? 0;
+  cost.oninput = () => obj.cost = parseInt(cost.value) || 0;
+
+  // DOOR
+  if (mapData.doors.includes(obj)) {
+    title.textContent = 'Door Properties';
+    return;
+  }
+
+  // INTERACT TYPES
+  if (obj.type === 'mystery') {
+    title.textContent = 'Mystery Box Properties';
+    return;
+  }
+
+  if (obj.type === 'wallbuy') {
+    title.textContent = 'Wall Buy Properties';
+    wallGunRow.style.display = 'block';
+    wallGun.value = obj.gun;
+
+    wallGun.onchange = () => {
+      obj.gun = wallGun.value;
+    };
+    return;
+  }
+
+  if (obj.type === 'perk') {
+    title.textContent = 'Perk Properties';
+    perkRow.style.display = 'block';
+    perk.value = obj.perk;
+
+    perk.onchange = () => {
+      obj.perk = perk.value;
+    };
+  }
+
+  // TRAP
+  if (obj.type === 'trap') {
+    title.textContent = 'Zombie Trap Properties';
+
+    trapDurationRow.style.display = 'block';
+    trapCooldownRow.style.display = 'block'; 
+    trapDurationInput.value = obj.duration ?? 10;
+    trapCooldownInput.value = obj.cooldown ?? 10;
+
+    trapDurationInput.oninput = () => {
+      obj.duration = Math.max(1, parseInt(trapDurationInput.value) || 1);
+    };
+
+    trapCooldownInput.oninput = () => {
+      obj.cooldown = Math.max(0, parseInt(trapCooldownInput.value) || 0);
+    };
+
+    return;
+  }
+
+}
+
+function hideProps() {
+  document.getElementById('propsPanel').style.display = 'none';
+  selectedInteract = null;
+}
+
+
+
+function setTool(t) {
+  tool = t;
+  dragging = rotating = false;
+
+  // 🔥 Update button highlights
+  document.querySelectorAll('.tool-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tool === t);
+  });
+}
+
+
+function toggleGrid(){
+  snap = !snap;
+  draw();
+}
+
+function snapVal(v){
+  return snap ? Math.round(v / GRID) * GRID : v;
+}
+
+function flipSelectedSlope() {
+  if (selected.length === 0) return;
+
+  for (const obj of selected) {
+    if (obj.slope) {
+      obj.flip = !obj.flip;
+    }
+  }
+
+  draw();
+}
+
+
+function allObjects(){
+  return [
+    ...mapData.barriers,
+    ...mapData.walls,
+    ...mapData.interacts,
+    ...mapData.doors, 
+    ...mapData.spawns,
+    ...mapData.playerSpawns
+  ];
+}
+
+/* ---------- SIZE DEFINITIONS ---------- */
+function getSize(o){
+  if (o.w && o.h) return {w:o.w,h:o.h};
+  if (o.type === 'perk') return {w:18,h:18};
+  if (o.type === 'wallbuy') return {w:18,h:18};
+  if (o.type === 'mystery') return {w:20,h:20};
+  if (o.type === 'upgrade') return {w:20,h:20};
+  return {w:12,h:12};
+}
+
+/* ---------- ROTATION-AWARE HIT TEST ---------- */
+function hitTest(x, y) {
+  const objs = allObjects();
+
+  for (let i = objs.length - 1; i >= 0; i--) {
+    const o = objs[i];
+    const { w, h } = getSize(o);
+    const rot = (o.rotation || 0) * Math.PI / 180;
+
+    const dx = x - o.x;
+    const dy = y - o.y;
+
+    /* ---------- 1) CENTER PIVOT PICK (ALWAYS WORKS) ---------- */
+    if (Math.hypot(dx, dy) <= PIVOT_RADIUS + PICK_RADIUS) {
+      return o;
+    }
+
+    /* ---------- 2) ROTATION-AWARE RECTANGLE PICK ---------- */
+    const cos = Math.cos(-rot);
+    const sin = Math.sin(-rot);
+
+    const lx = dx * cos - dy * sin;
+    const ly = dx * sin + dy * cos;
+
+    if (
+      lx >= -w / 2 - PICK_RADIUS &&
+      lx <=  w / 2 + PICK_RADIUS &&
+      ly >= -h / 2 - PICK_RADIUS &&
+      ly <=  h / 2 + PICK_RADIUS
+    ) {
+      return o;
+    }
+  }
+  return null;
+}
+
+
+
+
+
+
+/* ---------- INPUT ---------- */
+canvas.addEventListener('mousedown', e => {
+  const r = canvas.getBoundingClientRect();
+  const x = snapVal(e.clientX - r.left);
+  const y = snapVal(e.clientY - r.top);
+
+  let hit = null;
+
+
+  if (doorLinkMode) {
+    const hit = hitTest(x, y);
+
+    // Select door first
+    if (hit && mapData.doors.includes(hit)) {
+      selectedLinkDoor = hit;
+      document.getElementById('linkModeStatus').textContent =
+        `ON (door ${hit.id} selected)`;
+      draw();
+      return;
+    }
+
+    // Then link spawns
+    if (hit && mapData.spawns.includes(hit) && selectedLinkDoor) {
+      hit.linkedDoorId = selectedLinkDoor.id;
+      draw();
+      return;
+    }
+
+    return;
+  }
+
+  // 🔗 DOOR ↔ DOOR LINK MODE
+if (doorDoorLinkMode) {
+  const hit = hitTest(x, y);
+
+  if (!hit || !mapData.doors.includes(hit)) return;
+
+  // First door
+  if (!firstLinkedDoor) {
+    firstLinkedDoor = hit;
+    document.getElementById('doorDoorLinkStatus').textContent =
+      `ON (door selected)`;
+    draw();
+    return;
+  }
+
+  // Second door
+  if (hit !== firstLinkedDoor) {
+    const group =
+      firstLinkedDoor.linkGroup ||
+      hit.linkGroup ||
+      `group_${nextDoorLinkGroupId++}`;
+
+    firstLinkedDoor.linkGroup = group;
+    hit.linkGroup = group;
+  }
+
+  firstLinkedDoor = null;
+  draw();
+  return;
+}
+
+
+
+
+  // ---------- MOVE TOOL ----------
+  if (tool === 'move') {
+    const hit = hitTest(x, y);
+
+    selectedDoor = null;
+
+    selectedInteract = null;
+
+    if (hit) {
+      if (!e.shiftKey) selected = [];
+      if (!selected.includes(hit)) selected.push(hit);
+
+      // 🔍 Detect editable objects
+      if (
+        mapData.doors.includes(hit) ||
+        mapData.interacts.includes(hit)
+      ) {
+        selectedInteract = hit;
+        showProps(hit);
+      } else {
+        hideProps();
+      }
+
+      dragging = true;
+      dragOffsets = selected.map(o => ({
+        o,
+        dx: o.x - x,
+        dy: o.y - y
+      }));
+    } else {
+      selected = [];
+      hideProps();
+    }
+
+
+    draw();
+    return;
+  }
+
+
+
+  if (isPlacementTool(tool)) {
+    pushUndoState();
+    
+  }
+
+  // ---------- MOVE / ROTATE ----------
+  // ---------- PLACEMENT ----------
+  if (tool === 'barrier') {
+    const W = 16, H = 120;
+    mapData.barriers.push({
+      x: x + W / 2,
+      y: y + H / 2,
+      w: W,
+      h: H,
+      rotation: 0
+    });
+  }
+
+  else if (tool === 'hbarrier') {
+    mapData.barriers.push({
+      x, y,
+      w: 120,
+      h: 16,
+      rotation: 0
+    });
+  }
+
+  else if (tool === 'wall') {
+    const SIZE = 40;
+    mapData.walls.push({
+      x: x + SIZE / 2,
+      y: y + SIZE / 2,
+      w: SIZE,
+      h: SIZE,
+      rotation: 0
+    });
+  }
+
+  else if (tool === 'wallbuy') {
+    mapData.interacts.push({
+      type: 'wallbuy',
+      x, y,
+      gun: wallGun.value,
+      cost: 750,
+      rotation: 0
+    });
+  }
+
+  else if (tool === 'perk') {
+    mapData.interacts.push({
+      type: 'perk',
+      x, y,
+      perk: perkSelect.value,
+      cost: 2500,
+      radius: 50,          // ✅ REQUIRED
+      rotation: 0
+    });
+  }
+
+  
+
+  else if (tool === 'mystery') {
+    mapData.interacts.push({
+      type: 'mystery',
+      x, y,
+      cost: 950,
+      rotation: 0
+    });
+  }
+
+  else if (tool === 'upgrade') {
+    mapData.interacts.push({
+      type: 'upgrade',
+      x, y,
+      cost: 5000,
+      rotation: 0
+    });
+  }
+
+  else if (tool === 'playerspawn') {
+    mapData.playerSpawns.push({
+      x, y,
+      rotation: 0
+    });
+  }
+
+  else if (tool === 'spawn') {
+    mapData.spawns.push({
+      x, y,
+      doorId: selectedDoor?.id || null
+    });
+  }
+
+  else if (tool === 'door_h') {
+    mapData.doors.push({
+      id: `door_${Date.now()}`,
+      x, y,
+      w: 120,
+      h: 16,
+      rotation: 0,
+      cost: 1250,
+      open: false
+    });
+  }
+
+  else if (tool === 'door_v') {
+    mapData.doors.push({
+      id: `door_${Date.now()}`,
+      x, y,
+      w: 16,
+      h: 120,
+      rotation: 0,
+      cost: 1250,
+      open: false
+    });
+  }
+  else if (tool === 'trap') {
+    const W = 16;   // same as door
+    const H = 120;
+
+    mapData.interacts.push({
+      type: 'trap',
+      x: x + W / 2,
+      y: y + H / 2,
+      w: W,
+      h: H,
+      rotation: 0,
+      cost: 1000,
+      duration: 10 // seconds active
+    });
+  }
+
+  else if (tool === 'trap_h') {
+    const W = 120;
+    const H = 16;
+
+    mapData.interacts.push({
+      type: 'trap',
+      x: x + W / 2,
+      y: y + H / 2,
+      w: W,
+      h: H,
+      rotation: 0,
+      cost: 1000,
+      duration: 10
+    });
+    
+  }
+
+  else if (tool === 'slope_left' || tool === 'slope_right') {
+    pushUndoState();
+  const SIZE = 40;
+
+  mapData.walls.push({
+    x: x + SIZE / 2,
+    y: y + SIZE / 2,
+    w: SIZE,
+    h: SIZE,
+    slope: tool === 'slope_left' ? 'left' : 'right',
+    flip: false,
+    rotation: 0
+  });
+}
+
+
+
+
+  // (rest of placement tools unchanged)
+
+  selected = [];
+  draw();
+});
+
+
+
+
+canvas.addEventListener('mouseup', () => {
+  dragging = rotating = false;
+  undoCaptured = false; // 🔥 REQUIRED
+});
+
+
+canvas.addEventListener('mousemove',e=>{
+  if(!dragging&&!rotating) return;
+  const r = canvas.getBoundingClientRect();
+  const x = snapVal(e.clientX-r.left);
+  const y = snapVal(e.clientY-r.top);
+
+  if(dragging){
+    dragOffsets.forEach(d=>{
+      d.o.x = x + d.dx;
+      d.o.y = y + d.dy;
+    });
+  }
+
+  if(rotating && selected.length){
+    const o = selected[0];
+    const a = Math.atan2(y-o.y,x-o.x);
+    const d = a-lastAngle;
+    selected.forEach(s=>s.rotation=(s.rotation||0)+d*180/Math.PI);
+    lastAngle=a;
+  }
+  draw();
+});
+
+canvas.addEventListener('mouseup',()=>{
+  dragging=rotating=false;
+});
+
+/* ---------- DELETE ---------- */
+function deleteSelected() {
+  if (!selected.length) return;
+  pushUndoState();
+  hideDoorProps();
+  hideProps();
+
+  [mapData.barriers, mapData.walls, mapData.interacts, mapData.spawns, mapData.playerSpawns, mapData.doors]
+    .forEach(arr => {
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (selected.includes(arr[i])) arr.splice(i, 1);
+      }
+    });
+
+  selected.length = 0;
+  draw();
+}
+
+
+/* ---------- DRAW ---------- */
+function drawGrid(){
+  if(!snap) return;
+  ctx.strokeStyle='#333';
+  for(let x=0;x<canvas.width;x+=GRID){
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,canvas.height);ctx.stroke();
+  }
+  for(let y=0;y<canvas.height;y+=GRID){
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canvas.width,y);ctx.stroke();
+  }
+}
+
+function drawObj(o, color){
+  const { w, h } = getSize(o);
+  const isSelected = selected.includes(o);
+
+  ctx.save();
+  ctx.translate(o.x, o.y);
+  ctx.rotate((o.rotation || 0) * Math.PI / 180);
+
+  
+
+  // spawn linked to a door indicator
+
+
+
+  // object body
+  ctx.fillStyle = color;
+  ctx.fillRect(-w/2, -h/2, w, h);
+
+  // selection outline
+  if (isSelected) {
+    ctx.strokeStyle = '#ff0';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-w/2-3, -h/2-3, w+6, h+6);
+  }
+
+  // center pivot (ALWAYS visible)
+  ctx.beginPath();
+  ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = isSelected ? '#ff0' : '#888';
+  ctx.fill();
+
+  ctx.restore();
+
+  // 🔒 spawn linked to door indicator
+  if (o.doorId) {
+    ctx.save();
+    ctx.fillStyle = '#0f0';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🔒', o.x, o.y - h / 2 - 8);
+    ctx.restore();
+  }
+
+
+  if (mapData.doors.includes(o)) {
+    ctx.save();
+    ctx.translate(o.x, o.y);
+    ctx.rotate((o.rotation || 0) * Math.PI / 180);
+    ctx.strokeStyle = (o === selectedDoor) ? '#0f0' : '#555';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    ctx.restore();
+  }
+
+
+
+  // label (only when selected)
+  if (isSelected) {
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+
+    let label = 'Object';
+    if (o.type === 'perk') label = `Perk\n${o.perk}`;
+    else if (o.type === 'wallbuy') label = `Wall Buy\n${o.gun}`;
+    else if (o.type === 'mystery') label = 'Mystery Box';
+    else if (o.type === 'upgrade') label = 'Upgrade Station';
+    else if (o.w && o.h) label = 'Wall / Barrier';
+    else if (o.w && o.h) {
+      label = o.w > o.h ? 'Horizontal Barrier' : 'Vertical Barrier';
+    }
+
+
+    label.split('\n').forEach((t,i)=>{
+      ctx.fillText(t, o.x, o.y - h/2 - 10 - i*12);
+    });
+  }
+}
+
+function drawSlopeWall(w) {
+  const isSelected = selected.includes(w);
+  const x = w.x - w.w / 2;
+  const y = w.y - w.h / 2;
+  const flipped = w.flip === true;
+
+  ctx.save();
+
+  // triangle body
+  ctx.fillStyle = '#666';
+  ctx.beginPath();
+
+  if (w.slope === 'left') {
+    if (!flipped) {
+      // normal left slope
+      ctx.moveTo(x, y + w.h);
+      ctx.lineTo(x + w.w, y + w.h);
+      ctx.lineTo(x, y);
+    } else {
+      // flipped left slope (upside down)
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + w.w, y);
+      ctx.lineTo(x, y + w.h);
+    }
+  } else {
+    if (!flipped) {
+      // normal right slope
+      ctx.moveTo(x, y + w.h);
+      ctx.lineTo(x + w.w, y);
+      ctx.lineTo(x + w.w, y + w.h);
+    } else {
+      // flipped right slope (upside down)
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + w.w, y);
+      ctx.lineTo(x + w.w, y + w.h);
+    }
+  }
+
+  ctx.closePath();
+  ctx.fill();
+
+  // selection outline
+  if (isSelected) {
+    ctx.strokeStyle = '#ff0';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x - 3, y - 3, w.w + 6, w.h + 6);
+  }
+
+  // pivot
+  ctx.beginPath();
+  ctx.arc(w.x, w.y, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = isSelected ? '#ff0' : '#888';
+  ctx.fill();
+
+  ctx.restore();
+}
+
+
+
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawGrid();
+
+  mapData.barriers.forEach(o=>drawObj(o,'#888'));
+
+  // 🔗 Draw door-spawn links
+  ctx.save();
+  ctx.strokeStyle = '#00ffff';
+  ctx.lineWidth = 2;
+
+  
+
+  for (const s of mapData.spawns) {
+    if (!s.linkedDoorId) continue;
+
+    const door = mapData.doors.find(d => d.id === s.linkedDoorId);
+    if (!door) continue;
+
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    ctx.lineTo(door.x, door.y);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+
+
+  mapData.doors.forEach(o => drawObj(o, '#7b5'));
+  // Player spawns (blue)
+  mapData.playerSpawns.forEach(o=>{
+    ctx.beginPath();
+    ctx.arc(o.x, o.y, 7, 0, Math.PI*2);
+    ctx.fillStyle = '#4c8bf5';
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('P', o.x, o.y - 10);
+  });
+
+
+  mapData.walls.forEach(w => {
+    if (w.slope) drawSlopeWall(w);
+    else drawObj(w, '#555');
+  });
+
+  mapData.interacts.forEach(o=>{
+    const c=
+      o.type==='perk'?'#0f6':
+      o.type==='wallbuy'?'#0af':
+      o.type === 'trap' ? '#f00' :
+      o.type==='mystery'?'#f0f':'#fa0';
+    drawObj(o,c);
+  });
+  mapData.spawns.forEach(o=>{
+    ctx.beginPath();
+    ctx.arc(o.x,o.y,6,0,Math.PI*2);
+    ctx.fillStyle='#f33';
+    ctx.fill();
+  });
+
+
+  // 🔗 DRAW DOOR ↔ DOOR LINKS
+ctx.save();
+ctx.strokeStyle = '#064'; // 🌲 dark green
+ctx.lineWidth = 3;
+
+const groups = {};
+
+for (const d of mapData.doors) {
+  if (!d.linkGroup) continue;
+  if (!groups[d.linkGroup]) groups[d.linkGroup] = [];
+  groups[d.linkGroup].push(d);
+}
+
+for (const g in groups) {
+  const list = groups[g];
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      ctx.beginPath();
+      ctx.moveTo(list[i].x, list[i].y);
+      ctx.lineTo(list[j].x, list[j].y);
+      ctx.stroke();
+    }
+  }
+}
+
+ctx.restore();
+
+}
+
+
+
+
+function exportMap(){
+  output.value = JSON.stringify(mapData,null,2);
+}
+drawMapBorder();
+draw();
+</script>
+</body>
+</html>
