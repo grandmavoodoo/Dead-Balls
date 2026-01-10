@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>DEAD BALLS</title>
+<title>Dead Balls</title>
 <style>
   html, body { margin:0; padding:0; background:#111; color:#eee; font-family:system-ui, sans-serif; }
   #ui { position:fixed; left:10px; top:10px; z-index:10; }
@@ -88,7 +88,7 @@
 </style>
 </head>
 <body>
-
+  <script src="scripts/player_info.js"></script>
   <script src="scripts/player_stats.js"></script>
 
 
@@ -128,12 +128,21 @@
     ">
       Restart Game
     </button>
+
+    <div class="row" style="margin-top:8px;">
+      LVL <span id="uiLevel">1</span>
+      <div style="width:160px;height:8px;background:#333;border-radius:6px;margin-top:4px;">
+        <div id="uiExpBar" style="height:100%;width:0%;background:#3498db;border-radius:6px;"></div>
+      </div>
+    </div>
+
+
   </div>
 
 
 </div>
 <div id="menu">
-  <h1>🧟 DEAD BALLS</h1>
+  <h1>🧟 Dead Balls</h1>
 
   <input type="file" id="mapLoader" accept=".json">
   <br><br>
@@ -141,6 +150,33 @@
   <button id="startBtn" disabled>Start Game</button>
 
   <p id="mapName">No map loaded</p>
+
+  <div id="menuLevel" style="margin-bottom:14px;text-align:center;">
+  <div style="font-size:18px;font-weight:700;">
+    LEVEL <span id="menuLevelNum">1</span>
+  </div>
+  <div style="width:220px;height:10px;background:#333;border-radius:6px;margin-top:6px;">
+    <div id="menuExpBar" style="height:100%;width:0%;background:#2ecc71;border-radius:6px;"></div>
+  </div>
+</div>
+
+<button
+  id="resetProgressBtn"
+  style="
+    margin-top:12px;
+    padding:8px 16px;
+    font-size:14px;
+    font-weight:700;
+    cursor:pointer;
+    background:#8b0000;
+    color:white;
+    border:2px solid white;
+  "
+>
+  RESET PROGRESS
+</button>
+
+
 </div>
 
 <canvas id="game"></canvas>
@@ -299,6 +335,19 @@
 
 
 
+const resetBtn = document.getElementById('resetProgressBtn');
+
+if (resetBtn) {
+  resetBtn.addEventListener('click', () => {
+    const confirmReset = confirm(
+      'Are you sure you want to reset your level and EXP?\nThis cannot be undone.'
+    );
+
+    if (!confirmReset) return;
+
+    PlayerInfo.reset();
+  });
+}
 
 
   // ===== GLOBAL GAME ARRAYS (MUST BE ABOVE loadMap) =====
@@ -349,8 +398,8 @@
   let activeMysteryIndex = -1;
   let mysterySpinCount = 0;
   window.MASTER_VOLUME = window.MASTER_VOLUME ?? 0.6;
-  window.musicVolume = window.musicVolume ?? 0.05;
-  window.powerupVolume = 0.30;
+  window.musicVolume = window.musicVolume ?? 0.10;
+  window.powerupVolume = 0.60;
   window.roundChangeVolume = window.roundChangeVolume ?? 0.6;
 
   
@@ -404,7 +453,7 @@ const roundChangeSlider = {
   
 
   const PLAYER_DEFAULTS = {
-    speed: 140,
+    speed: 100,
     hitsMax: 3,
    reviveDuration: 4.21
   };
@@ -469,6 +518,31 @@ const roundChangeSlider = {
       drops: ['NUKE', 'DEATH']
     }
   };
+
+window.updatePlayerExpUI = function () {
+  const pct = Math.min(
+    100,
+    (PlayerInfo.exp / PlayerInfo.expToNext) * 100
+  );
+
+  // ===== MENU UI =====
+  const menuLevelNum = document.getElementById('menuLevelNum');
+  const menuExpBar = document.getElementById('menuExpBar');
+
+  if (menuLevelNum) menuLevelNum.textContent = PlayerInfo.level;
+  if (menuExpBar) menuExpBar.style.width = pct + '%';
+
+  // ===== IN-GAME UI =====
+  const uiLevel = document.getElementById('uiLevel');
+  const uiExpBar = document.getElementById('uiExpBar');
+
+  if (uiLevel) uiLevel.textContent = PlayerInfo.level;
+  if (uiExpBar) uiExpBar.style.width = pct + '%';
+};
+
+updatePlayerExpUI();
+
+
 
 
 window.setMasterVolume = v => {
@@ -1197,7 +1271,7 @@ function updateZombieCounter() {
   const player = {
   x: WIDTH / 2,
   y: HEIGHT / 2,
-  speed: 140,
+  speed: 100,
   angle: 0,
   radius: 14,
 
@@ -2206,7 +2280,7 @@ function playEmptyGunSound() {
   const y =
     canvas.height -
     (ICON_SIZE * 2) -
-    28;
+    65;
 
   active.forEach((key, i) => {
     const img = powerIcons[key];
@@ -2214,12 +2288,7 @@ function playEmptyGunSound() {
 
     const x = startX + i * (ICON_SIZE + SPACING);
 
-    // background plate
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.beginPath();
-    ctx.roundRect(x - 4, y - 4, ICON_SIZE + 8, ICON_SIZE + 8, 8);
-    ctx.fill();
-
+  
     // clip icon (removes PNG black edges)
     ctx.save();
     ctx.beginPath();
@@ -2255,7 +2324,7 @@ function playEmptyGunSound() {
       (ownedPerks.length - 1) * SPACING;
 
     const startX = canvas.width / 2 - totalWidth / 2;
-    const y = canvas.height - ICON_SIZE - 16; // bottom middle
+    const y = canvas.height - ICON_SIZE - 40; // bottom middle
 
     ownedPerks.forEach((perk, i) => {
       const img = perkIcons[perk];
@@ -2263,11 +2332,7 @@ function playEmptyGunSound() {
 
       const x = startX + i * (ICON_SIZE + SPACING);
 
-    // ===== BACK PLATE =====
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.beginPath();
-      ctx.roundRect(x - 4, y - 4, ICON_SIZE + 8, ICON_SIZE + 8, 8);
-      ctx.fill();
+    
 
     // ===== CLIP ICON (REMOVES BLACK BACKGROUND) =====
       ctx.save();
@@ -2681,6 +2746,57 @@ roundChangeSlider.y = canvas.height / 2 + 135 + UI_Y_OFFSET;
 
 drawSlider(roundChangeSlider, window.roundChangeVolume);
 
+// ===== PLAYER LEVEL / EXP =====
+const expBarWidth = 260;
+const expBarHeight = 12;
+
+const expPct = Math.min(
+  1,
+  PlayerInfo.exp / PlayerInfo.expToNext
+);
+
+const expX = canvas.width / 2 - expBarWidth / 2;
+const expY = canvas.height / 2 - 420;
+
+// label
+ctx.fillStyle = '#ffffff';
+ctx.font = 'bold 20px system-ui';
+ctx.textAlign = 'center';
+ctx.fillText(
+  `LEVEL ${PlayerInfo.level}`,
+  canvas.width / 2,
+  expY - 14
+);
+
+// bar background
+ctx.fillStyle = '#333';
+ctx.fillRect(expX, expY, expBarWidth, expBarHeight);
+
+// bar fill
+ctx.fillStyle = '#2ecc71';
+ctx.fillRect(
+  expX,
+  expY,
+  expBarWidth * expPct,
+  expBarHeight
+);
+
+// bar border
+ctx.strokeStyle = '#ffffff';
+ctx.lineWidth = 1;
+ctx.strokeRect(expX, expY, expBarWidth, expBarHeight);
+
+// exp text
+ctx.font = '14px system-ui';
+ctx.fillStyle = '#ffffff';
+ctx.fillText(
+  `${PlayerInfo.exp} / ${PlayerInfo.expToNext} EXP`,
+  canvas.width / 2,
+  expY + 24
+);
+
+
+
 // ===== FOOTER / CONTROLS =====
 ctx.font = '16px system-ui';
 ctx.fillText('Press ESC to resume', canvas.width / 2, canvas.height / 2 + 175 + UI_Y_OFFSET);
@@ -2825,7 +2941,20 @@ function resolveZombieWallCollisionWithBoost(z, wall) {
   }
 }
 
+function handleZombieAttacks(z, now) {
+  if (!z.alive) return;
 
+  const dx = z.x - player.x;
+  const dy = z.y - player.y;
+  const dist = Math.hypot(dx, dy);
+
+  if (dist <= z.attackRange) {
+    if (now - z.lastAttackTime >= z.attackCooldown) {
+      z.lastAttackTime = now;
+      damagePlayer(1); // or whatever damage value you want
+    }
+  }
+}
 
 
   // Zombie spawning
@@ -2885,20 +3014,17 @@ function resolveZombieWallCollisionWithBoost(z, wall) {
       x: s.x,
       y: s.y,
       r: 12,
-      speed: rnd(30, 55),
+      speed: rnd(45, 65),
 
       hp,
       hpMax: hp,
 
-      // ===============================
-      // 🧠 BARRIER STATE (STEP ONE FIX)
-      // ===============================
       targetBarrier: targetBarrier,
       spawnedBehindBarrier: !!targetBarrier,
 
       ignoreBarriers: false,          // 🔒 once true, never target barriers again
       passedBarriers: new Set(),      // ✅ track crossed barriers (IMPORTANT)
-
+      
       spawnTime: performance.now(),
 
       // Barrier / player attack logic
@@ -2915,6 +3041,11 @@ function resolveZombieWallCollisionWithBoost(z, wall) {
     });
   }
 }
+
+
+
+
+
 
 function checkZombiePassedBarrier(z, barrier) {
   if (z.ignoreBarriers) return;
@@ -2957,6 +3088,35 @@ function checkZombiePassedBarrier(z, barrier) {
     z.blockedByBarrier = null;
   }
 }
+  
+
+function clearBarrierIfPassed(z) {
+  const b = z.targetBarrier;
+  if (!b || b.open) {
+    z.targetBarrier = null;
+    return;
+  }
+
+  // distance zombie → player
+  const dzp =
+    (z.x - player.x) ** 2 +
+    (z.y - player.y) ** 2;
+
+  // distance barrier center → player
+  const bx = b.x + b.w / 2;
+  const by = b.y + b.h / 2;
+  const dbp =
+    (bx - player.x) ** 2 +
+    (by - player.y) ** 2;
+
+  // ✅ zombie is past the barrier
+  if (dzp < dbp) {
+    z.targetBarrier = null;
+  }
+}
+
+
+
 
 
 
@@ -2970,6 +3130,7 @@ function checkZombiePassedBarrier(z, barrier) {
       g.baseDamage = g.damage;
       g.baseReserveMax = g.reserveMax;
       g.upgradeCost = 5000;
+      g.upgradeCost = Math.round(g.upgradeCost * 1.25);
     }
 
     const cost = stationCost ?? g.upgradeCost;
@@ -3036,7 +3197,7 @@ function updatePowerDrops(now) {
 
   // Power-up drops
   function tryDropPower(x, y) {
-  const chance = 0.008; 
+  const chance = 0.00095; 
   if (Math.random() > chance) return;
 
   const weights = [
@@ -3735,6 +3896,7 @@ function resolveCircleTriangleCollision(circle, tri) {
 
 
 
+
   function drawWeaponHUD() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 
@@ -3855,6 +4017,40 @@ function resolveCircleTriangleCollision(circle, tri) {
     y + hudH - 15
   );
 
+  ctx.restore();
+}
+
+function drawLowHealthVignette(ctx, healthPct) {
+  // Full health = no effect
+  if (healthPct >= 1) return;
+
+  // How close to death (0 → 1)
+  const danger = 1 - healthPct;
+
+  // Max opacity caps (tweak if desired)
+  const maxAlpha = 0.75;
+
+  const alpha = danger * maxAlpha;
+
+  const w = ctx.canvas.width;
+  const h = ctx.canvas.height;
+
+  const cx = w / 2;
+  const cy = h / 2;
+  const innerRadius = Math.min(w, h) * (0.35 + healthPct * 0.15);
+  const outerRadius = Math.max(w, h) * 0.75;
+
+  const grad = ctx.createRadialGradient(
+    cx, cy, innerRadius,
+    cx, cy, outerRadius
+  );
+
+  grad.addColorStop(0, `rgba(255, 0, 0, 0)`);
+  grad.addColorStop(1, `rgba(180, 0, 0, ${alpha})`);
+
+  ctx.save();
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
   ctx.restore();
 }
 
@@ -3989,7 +4185,7 @@ function resolveCircleTriangleCollision(circle, tri) {
 
   function maybeDropPowerUp(x, y) {
     // Base drop chance (classic zombies feel)
-    if (Math.random() > 0.008) return; // 15% overall drop chance
+    if (Math.random() > 0.00095) return; // 15% overall drop chance
 
     const rarity = rollDropRarity(round);
     if (!rarity) return;
@@ -4491,6 +4687,8 @@ for (const wall of walls) {
     aliveCount = 0;
     for (const z of zombies) {
       if (!z.alive) continue;
+      clearBarrierIfPassed(z);
+      handleZombieAttacks(z, now);
       aliveCount++;
     z.skipMove = false;
   // ===============================
@@ -5401,6 +5599,11 @@ if (player.downed) {
 
   ctx.restore();
 }
+const healthPct = Math.max(
+    0,
+    Math.min(1, player.hitsRemaining / player.hitsMax)
+  );
+
 
 
 ///--------------------
@@ -5410,6 +5613,7 @@ if (player.downed) {
 
     // UI overlays (round banner, game over, revive)
     drawRoundBanner();
+    drawLowHealthVignette(ctx, healthPct);
     drawWeaponHUD();
     drawPointsHUD();
     drawPerkIcons();
