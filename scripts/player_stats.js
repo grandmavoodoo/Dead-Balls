@@ -14,6 +14,18 @@
 // PlayerStats.addDoor();
 // PlayerStats.addRoundSurvived();
 
+// EXP REWARDS (tweak freely)
+const EXP_VALUES = {
+  kill: 15,
+  trapKill: 5,
+  roundSurvived: 10,
+  doorsOpened: 6,
+  trapBuys: 4,
+  upgrade: 35,
+  downs: -50
+};
+
+
 
 window.PlayerStats = {
   // LIFETIME TRACKING ONLY
@@ -45,25 +57,31 @@ window.PlayerStats = {
 
   addKill() {
     this.kills++;
+    PlayerInfo.addExp(EXP_VALUES.kill);
   },
 
   addUpgrade() {
     this.upgrades++;
+    PlayerInfo.addExp(EXP_VALUES.upgrade);
   },
 
   addDown() {
     this.downs++;
+    PlayerInfo.addExp(EXP_VALUES.downs);
   },
 
   addDoor() {
     this.doorsOpened++;
+    PlayerInfo.addExp(EXP_VALUES.doorsOpened);
   },
   addTrapBuy() {
   this.trapBuys++;
+  PlayerInfo.addExp(EXP_VALUES.trapBuys);
   },
 
   addTrapKill() {
     this.trapKills++;
+    PlayerInfo.addExp(EXP_VALUES.trapKill);
   },
   addRoundSurvived() {
   this.roundsSurvived++;
