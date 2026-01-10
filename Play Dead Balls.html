@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Dead Balls</title>
+<title>DEAD BALLS</title>
 <style>
   html, body { margin:0; padding:0; background:#111; color:#eee; font-family:system-ui, sans-serif; }
   #ui { position:fixed; left:10px; top:10px; z-index:10; }
@@ -142,7 +142,7 @@
 
 </div>
 <div id="menu">
-  <h1>🧟 Dead Balls</h1>
+  <h1>🧟 DEAD BALLS</h1>
 
   <input type="file" id="mapLoader" accept=".json">
   <br><br>
@@ -175,6 +175,24 @@
 >
   RESET PROGRESS
 </button>
+
+
+<button
+  id="mapEditorBtn"
+  style="
+    margin-top:12px;
+    padding:10px 20px;
+    font-size:16px;
+    font-weight:700;
+    cursor:pointer;
+    background:#2c3e50;
+    color:white;
+    border:2px solid white;
+  "
+>
+  🛠 Open Map Editor
+</button>
+
 
 
 </div>
@@ -518,6 +536,14 @@ const roundChangeSlider = {
       drops: ['NUKE', 'DEATH']
     }
   };
+
+const mapEditorBtn = document.getElementById('mapEditorBtn');
+
+mapEditorBtn.onclick = () => {
+  // open editor in a new tab
+  window.open('scripts/map_editor.html', '_blank');
+};
+
 
 window.updatePlayerExpUI = function () {
   const pct = Math.min(
