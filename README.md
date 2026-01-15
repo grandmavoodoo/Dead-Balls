@@ -13,7 +13,8 @@ find the map forlder where youre game is and load it in
 *Note* -
 if any zombies get stuck they should respawn in an area next to you but if they are still stuck you can open a new tap in your browser and go back to the game and they will move through the walls (this is a bug but it helps)
 
-Map Editor - Beta - 0.0.1
+Map Editor - Beta - 0.0.1 
 - work in progress (But it works)
 - note if you have a hard time selecting items zoom out on the page it will make it easer
 - note spawn RN dont have a highlight when you select them just know if you hav moved that spawn you have seleceted it.
+- Go to the Discord for Updates for Map-Editor. Discrod link: [https://discord.gg/7TCrgkxT ,](https://discord.gg/eprrb2fvEc) 
