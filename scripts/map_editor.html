@@ -42,46 +42,9 @@ hr { border-color:#333; }
 </style>
 </head>
 <body>
-  
-
-  <div id="licenseScreen" style="
-  position:fixed;
-  inset:0;
-  background:#000;
-  color:#0f0;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  z-index:9999;
-  font-family:monospace;
-">
-  <h1>🧟 MAP EDITOR</h1>
-  <h2>Go to the Discord to unlock: https://discord.gg/4e9Gaf5E</h2>
-
-  <input
-    id="licenseInput"
-    placeholder="Enter Product Key"
-    style="padding:10px;width:280px;text-align:center;font-size:16px"
-  >
-
-  <button onclick="unlockEditor()" style="
-    margin-top:10px;
-    padding:10px 20px;
-    font-size:16px;
-    cursor:pointer
-  ">
-    Unlock Editor
-  </button>
-
-  <p id="licenseError" style="color:#f66;margin-top:10px;"></p>
-</div>
-
 
 <div id="tools">
   <h3>Tools - f1 to undo </h3>
-  
-  <!-- <button onclick="resetProductKey()" style="background:#400;color:#f66;font-weight:bold;"> 🔒 Reset Product Key </button>  -->
 
   <button class="tool-btn" data-tool="barrier" onclick="setTool('barrier')">Barrier (Vertical)</button>
   <button class="tool-btn" data-tool="hbarrier" onclick="setTool('hbarrier')">Barrier (Horizontal)</button>
@@ -235,50 +198,6 @@ hr { border-color:#333; }
 <canvas id="map" width="1250" height="1250"></canvas>
 
 <script>
-
-const LICENSE_SECRET = "SUS_ZOMBIES_EDITOR";
-
-function hashKey(key) {
-  let h = 0;
-  const str = key + LICENSE_SECRET;
-  for (let i = 0; i < str.length; i++) {
-    h = (h << 5) - h + str.charCodeAt(i);
-    h |= 0;
-  }
-  return h;
-}
-
-function unlockEditor() {
-  const input = document.getElementById("licenseInput").value.trim();
-  const error = document.getElementById("licenseError");
-
-  if (!input.startsWith("ZMAP-")) {
-    error.textContent = "Invalid product key format";
-    return;
-  }
-
-  const stored = JSON.parse(localStorage.getItem("VALID_MAP_KEYS") || "[]");
-  const hashed = hashKey(input);
-
-  if (!stored.includes(hashed)) {
-    error.textContent = "Product key not recognized";
-    return;
-  }
-
-  localStorage.setItem("MAP_EDITOR_UNLOCKED", "true");
-  document.getElementById("licenseScreen").style.display = "none";
-}
-
-
-window.addEventListener("load", () => {
-  if (localStorage.getItem("MAP_EDITOR_UNLOCKED") === "true") {
-    const screen = document.getElementById("licenseScreen");
-    if (screen) screen.style.display = "none";
-  }
-});
-
-
-
 const canvas = document.getElementById('map');
 const ctx = canvas.getContext('2d');
 const PICK_RADIUS = 8;     // forgiving click radius
@@ -480,25 +399,6 @@ function toggleDoorDoorLinkMode() {
 }
 
 
-function resetProductKey() {
-  if (!confirm("Reset product key and lock the editor?")) return;
-
-  // Remove unlock + valid keys
-  localStorage.removeItem("MAP_EDITOR_UNLOCKED");
-  localStorage.removeItem("VALID_MAP_KEYS");
-
-  // Show license screen again
-  const screen = document.getElementById("licenseScreen");
-  if (screen) screen.style.display = "flex";
-
-  // Clear input & error
-  const input = document.getElementById("licenseInput");
-  const error = document.getElementById("licenseError");
-  if (input) input.value = "";
-  if (error) error.textContent = "";
-
-  alert("Product key reset. Editor locked.");
-}
 
 
 function undo() {
