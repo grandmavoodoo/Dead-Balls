@@ -1283,6 +1283,35 @@
       "linkedDoorId": "door_1767226507573"
     }
   ],
+  "bossSpawns": [
+    {
+      "x": 400,
+      "y": 600,
+      "doorId": null
+    },
+    {
+      "x": 340,
+      "y": 1100,
+      "doorId": null
+    },
+    {
+      "x": 580,
+      "y": 820,
+      "doorId": null
+    },
+    {
+      "x": 520,
+      "y": 340,
+      "doorId": null,
+      "linkedDoorId": "door_1767226507573"
+    },
+    {
+      "x": 800,
+      "y": 100,
+      "doorId": null,
+      "linkedDoorId": "door_1767226507573"
+    }
+  ],
   "playerSpawns": [
     {
       "x": 360,
