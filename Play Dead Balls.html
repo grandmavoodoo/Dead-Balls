@@ -1705,6 +1705,8 @@ function explodeGrenade(g) {
       z.alive = false;
       z.forcedTarget = false;
       PlayerStats.addKill();
+      PlayerStats.addPoints(25);
+      player.points += 25;
     }
   }
 
@@ -2689,6 +2691,15 @@ function startMysteryRoll(finalText, onFinish) {
     quickRevive:false,
     quickReviveUsed:false
   };
+
+  // --- Reset Quick Revive bookkeeping so purchases are cleared on restart ---
+  // This ensures the perk machine can be bought again from scratch.
+  player.quickRevive = {
+    buys: 0,
+    maxBuys: 3
+  };
+  player.quickReviveSoldOut = false;
+  // -----------------------------------------------------------------------
 
   // ---- RESET GUNS ----
   player.guns = {};
