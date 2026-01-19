@@ -119,7 +119,6 @@
   ">
     <h1 style="font-size:64px;margin-bottom:20px;">GAME OVER</h1>
 
-
     <div>F5 - Back to Main Menu / Reload game</div>
 
     <button id="restartBtn" style="
@@ -136,6 +135,8 @@
         <div id="uiExpBar" style="height:100%;width:0%;background:#3498db;border-radius:6px;"></div>
       </div>
     </div>
+
+
   </div>
 
 
@@ -372,7 +373,6 @@ if (resetBtn) {
   const bullets = [];
   const barriers = [];
   const zombieSpawns = [];
-  const bossSpawns = [];
   const walls = [];
   const mysteryBoxes = [];
   const perkMachines = [];
@@ -394,27 +394,22 @@ if (resetBtn) {
   const GRENADE_THROW_DISTANCE = 6 * 20; // 6 blocks
   const GRENADE_FUSE_TIME = 3000;
   const grenadeExplosions = [];
+ 
 
   const MONKEY_ATTRACT_TIME = 4000;   // how long zombies are attracted (ms)
   const MONKEY_EXPLODE_TIME = 5500;   // total lifetime until explosion
   const MONKEY_RADIUS = 100;          // BIGGER explosion radius
 
-  // ==== BOSS ZOMBIE SYSTEM ====
-let nextBossRound = Math.floor(Math.random() * 3) + 5;
-let bossZombiesRemaining = 0;
-let lastBossPosition = { x: 0, y: 0 };
+  let bossSpawns = [];
 
 const BOSS_CONFIG = {
-  minSpawn: 5,
-  maxSpawn: 10,
-  sizeMultiplier: 1.8,
-  speedMultiplier: 1.0,
+  minSpawn: 3,
+  maxSpawn: 5,
   healthMultiplier: 5,
-  damageMultiplier: 3,
-  roundInterval: { min: 5, max: 7 }
+  speedMultiplier: 1.3,
+  sizeMultiplier: 1.8,
+  damageMultiplier: 1.5
 };
-
-
 
   
 
@@ -486,8 +481,8 @@ const roundChangeSlider = {
   
 
   const PLAYER_DEFAULTS = {
-    speed: 115,
-    hitsMax: 4,
+    speed: 100,
+    hitsMax: 3,
    reviveDuration: 4.21
   };
 
@@ -686,7 +681,7 @@ window.setMusicVolume = function (v) {
 
   
 
-  window.loadMap = function(map) {
+ window.loadMap = function(map) {
     console.log("LOADING MAP", map);
     
 
@@ -738,6 +733,7 @@ window.setMusicVolume = function (v) {
     zombieSpawns.length = 0;
     interacts.length = 0;
     zombieTraps.length = 0;
+    bossSpawns.length = 0; 
 
     if (map.spawns && map.spawns.length > 0) {
       player.x = map.spawns[0].x;
@@ -1089,23 +1085,19 @@ function withInteractCooldown(action) {
         });
       });
     }
-
-    /* ---- BOSS SPAWNS ---- */
-    /* ---- BOSS SPAWNS ---- */
-    bossSpawns.length = 0; // Clear existing, use global array
-    if (Array.isArray(map.bossSpawns)) {
-      map.bossSpawns.forEach(s => {
-        bossSpawns.push({
-          x: s.x,
-          y: s.y,
-          linkedDoorId: s.linkedDoorId ?? null
-        });
+    // Clear and load boss spawns properly
+  bossSpawns = [];
+  if (Array.isArray(map.bossSpawns)) {
+    map.bossSpawns.forEach(s => {
+      bossSpawns.push({
+        x: s.x,
+        y: s.y,
+        linkedDoorId: s.linkedDoorId ?? null
       });
-    }
-
+    });
+  }
     console.log("MAP APPLIED");
   };
-
 
   function gameOver() {
   const go = document.getElementById('gameOver');
@@ -1204,7 +1196,6 @@ function withInteractCooldown(action) {
 
 
   function handleZombieStuck(z, dt) {
-  // safety inits
   if (z.lastX == null) z.lastX = z.x;
   if (z.lastY == null) z.lastY = z.y;
   if (z.unstickAttempts == null) z.unstickAttempts = 0;
@@ -1214,7 +1205,6 @@ function withInteractCooldown(action) {
   const dy = z.y - z.lastY;
   const moved = Math.hypot(dx, dy);
 
-  // reset when movement detected
   if (moved >= ZOMBIE_STUCK_DIST) {
     z.stuckTime = 0;
     z.unstickAttempts = 0;
@@ -1223,13 +1213,10 @@ function withInteractCooldown(action) {
     return;
   }
 
-  // accumulate stuck time
   z.stuckTime = (z.stuckTime || 0) + dt;
 
-  // if currently in a short unstick period, try to keep moving (don't count that time)
   const now = performance.now();
   if (z.unstickUntil > now) {
-    // apply a small continued shove while unstick is active
     if (z.vx == null) z.vx = 0;
     if (z.vy == null) z.vy = 0;
     z.x += z.vx * dt;
@@ -1237,12 +1224,9 @@ function withInteractCooldown(action) {
     return;
   }
 
-  // only act when stuck long enough
   if (z.stuckTime < ZOMBIE_STUCK_TIME) return;
 
-  // DON'T teleport or forcibly move certain zombies:
-  if (z.isBoss) {
-    // bosses should try nudges but not teleport
+  if (z.isBoss || z.forcedTarget) {
     tryNudge(z);
     z.stuckTime = 0;
     z.lastX = z.x;
@@ -1250,27 +1234,15 @@ function withInteractCooldown(action) {
     return;
   }
 
-  // If zombie is actively forced (e.g., monkey bomb), try a nudge first
-  if (z.forcedTarget) {
-    tryNudge(z);
-    z.stuckTime = 0;
-    z.lastX = z.x;
-    z.lastY = z.y;
-    return;
-  }
-
-  // If zombie is meant to attack a closed barrier, do not teleport — try stronger nudges first
   const b = z.targetBarrier;
   if (b && !b.open) {
-    tryNudge(z, /*strong=*/true);
+    tryNudge(z, true);
     z.stuckTime = 0;
     z.lastX = z.x;
     z.lastY = z.y;
     return;
   }
 
-  // Staged strategy:
-  // - Try a couple of small nudges before teleporting to keep gameplay natural.
   if (z.unstickAttempts < 2) {
     tryNudge(z);
     z.unstickAttempts++;
@@ -1280,13 +1252,11 @@ function withInteractCooldown(action) {
     return;
   }
 
-  // FINAL: try respawn at a spawn near the player, otherwise teleport near the player
   const didRespawn = respawnZombieAtClosestSpawnToPlayer(z);
   if (!didRespawn) {
     teleportZombieNearPlayer(z);
   }
 
-  // reset counters after recovery
   z.unstickAttempts = 0;
   z.unstickUntil = 0;
   z.stuckTime = 0;
@@ -1294,26 +1264,19 @@ function withInteractCooldown(action) {
   z.lastY = z.y;
 }
 
-/* Helper: tryNudge(z, strong = false)
-   - Applies a short random shove and temporary speed boost so collision resolution can free the zombie.
-   - Does not persist beyond unstickDuration.
-*/
 function tryNudge(z, strong = false) {
   const now = performance.now();
-  const unstickDuration = strong ? 500 : 260; // ms
+  const unstickDuration = strong ? 500 : 260;
   const nudgeSpeed = (z.speed || 60) * (strong ? 1.8 : 1.2);
 
-  // random direction biased away from nearest barrier/wall when possible
   let angle = Math.random() * Math.PI * 2;
 
-  // if targeting a barrier, bias away from barrier center
   if (z.targetBarrier) {
     const b = z.targetBarrier;
     const bx = b.x + b.w / 2;
     const by = b.y + b.h / 2;
     angle = Math.atan2(z.y - by, z.x - bx) + (Math.random() - 0.5) * 0.9;
   } else if (typeof player !== "undefined") {
-    // small chance to bias toward player so nudges don't always move away
     if (Math.random() < 0.3) {
       angle = Math.atan2(player.y - z.y, player.x - z.x) + (Math.random() - 0.5) * 0.8;
     }
@@ -1322,40 +1285,20 @@ function tryNudge(z, strong = false) {
   const nx = Math.cos(angle);
   const ny = Math.sin(angle);
 
-  // assign a temporary velocity used by the main loop for a short while
   z.vx = nx * nudgeSpeed;
   z.vy = ny * nudgeSpeed;
 
-  // also perform an immediate small position shift to break tight overlaps
   const immediateShift = strong ? 8 : 4;
   z.x += nx * immediateShift;
   z.y += ny * immediateShift;
 
-  // temporarily increase wall speed boost so the zombie can push through small gaps
   z.wallSpeedBoost = Math.max(z.wallSpeedBoost || 1, strong ? 2.2 : 1.4);
-  z.wallBoostTimer = Math.max(z.wallBoostTimer || 0, 400); // ms stored as ms in your codebase
+  z.wallBoostTimer = Math.max(z.wallBoostTimer || 0, 400);
 
   z.unstickUntil = now + unstickDuration;
 }
 
 
-function onRoundEnded() {
-  if (roundTransitionTimer) return;
-
-  // 🔕 PLAY ROUND END SOUND (isolated)
-  RoundMusic.playEnd();
-  PlayerStats.addRoundSurvived();
-
-  roundTransitionTimer = setTimeout(() => {
-    round++;
-    uiRound.textContent = round;
-
-    // 🔔 ROUND START SOUND
-    startRoundSpawns();
-
-    roundTransitionTimer = null;
-  }, 2200);
-}
 
 
 
@@ -1365,18 +1308,38 @@ function onRoundEnded() {
 
 let roundTransitionTimer = null;
 
-function updateZombieCounter() {
-  const alive = zombies.filter(z => z.alive !== false).length;
-  uiZombiesLeft.textContent = alive;
+function onRoundEnded() {
+  // Only trigger once when there are truly no zombies AND no spawnRemaining
+  const alive = zombies.filter(z => z.alive).length;
+  if (alive > 0 || spawnRemaining > 0) return;
+  if (roundCooldown) return; // already waiting
 
-  // Detect round end ONLY
-  if (alive === 0 && gameStarted && !roundTransitionTimer) {
-    onRoundEnded();
-    RoundMusic.playEnd();
-    PlayerStats.addRoundSurvived();
-  }
+  // Play round-end music & record stat
+  RoundMusic.playEnd();
+  PlayerStats.addRoundSurvived();
+
+  // Start 15s cooldown
+  roundCooldown = true;
+  roundCooldownEnd = performance.now() + 15000; // 15 seconds
+  showRoundBanner = true;
+  roundBannerText = `ROUND ${round + 1}`;
+  roundBannerStart = performance.now();
 }
 
+
+
+function checkRoundEnd() {
+  const alive = zombies.filter(z => z.alive).length;
+  uiZombiesLeft.textContent = alive;
+
+  // Only run if the game has started
+  if (!gameStarted) return;
+
+  // If no zombies and nothing left to spawn and not already in cooldown -> end round
+  if (alive === 0 && spawnRemaining === 0 && !roundCooldown) {
+    onRoundEnded();
+  }
+}
 
 
 
@@ -1428,12 +1391,12 @@ function updateZombieCounter() {
   const player = {
   x: WIDTH / 2,
   y: HEIGHT / 2,
-  speed: 115,
+  speed: 100,
   angle: 0,
   radius: 14,
 
-  hitsMax: 4,
-  hitsRemaining: 4,
+  hitsMax: 3,
+  hitsRemaining: 3,
   grenades: 2,
   grenadesMax: 5,
 
@@ -1580,10 +1543,6 @@ const RoundMusic = {
 
   // Round cooldown state
   let round = 1;
-  // Boss round system
-  let isBossRound = false;
-  let bossRoundInterval = 5; // Boss round every 5 rounds
-  let bossesRemaining = 0;
   RoundMusic.playStart(); 
   let roundCooldown = false;
   let roundCooldownEnd = 0;
@@ -1702,20 +1661,51 @@ function explodeGrenade(g) {
     const dy = z.y - g.y;
 
     if (dx * dx + dy * dy <= radius * radius) {
-      z.alive = false;
-      z.forcedTarget = false;
-      PlayerStats.addKill();
-      PlayerStats.addPoints(25);
-      player.points += 25;
+      if (z.isBoss) {
+        // Boss zombies take 666 damage instead of instant death
+        z.health -= 666;
+        if (z.health <= 0) {
+          z.alive = false;
+          z.forcedTarget = false;
+          PlayerStats.addBossKill();
+          let pts = 666;
+          if (activePowers.double) pts *= 2;
+          player.points += pts;
+          PlayerStats.addPoints(pts);
+        }
+      } else {
+        // Regular zombies instantly die
+        if (g.type === "monkey") {
+          // Boss zombies ignore monkey bombs, so only kill non-boss zombies
+          z.alive = false;
+          z.forcedTarget = false;
+          PlayerStats.addBossKill();
+
+          let pts = 66;
+          if (activePowers.double) pts *= 2;
+          player.points += pts;
+          PlayerStats.addPoints(pts);
+        } else {
+          z.alive = false;
+          z.forcedTarget = false;
+          PlayerStats.addKill();
+
+          let pts = 25;
+          if (activePowers.double) pts *= 2;
+          player.points += pts;
+        }
+      }
     }
   }
 
   if (g.type === "monkey") {
-  for (const z of zombies) {
-    z.forcedTarget = false;
+    for (const z of zombies) {
+      // Boss zombies ignore monkey bombs, so do not force target for bosses
+      if (!z.isBoss) {
+        z.forcedTarget = false;
+      }
+    }
   }
-}
-
 
   // 💀 PLAYER DAMAGE
   const pdx = player.x - g.x;
@@ -1778,8 +1768,12 @@ function updateGrenades(dt) {
       if (now >= g.explodeAt) {
         explodeGrenade(g);
 
-        // release zombies after explosion
-        for (const z of zombies) z.forcedTarget = false;
+        // release zombies after explosion (except bosses, they were never forced)
+        for (const z of zombies) {
+          if (!z.isBoss) {
+            z.forcedTarget = false;
+          }
+        }
 
         grenades.splice(i, 1);
       }
@@ -1850,7 +1844,7 @@ function drawGrenadeExplosions() {
     let roll = Math.random();
 
     // Optional: better drops slightly more likely later rounds
-    const roundBoost = Math.min(round * 0.05, 0.8);
+    const roundBoost = Math.min(round * 0.005, 0.05);
     roll -= roundBoost;
 
     let acc = 0;
@@ -2674,8 +2668,8 @@ function startMysteryRoll(finalText, onFinish) {
   // ---- RESET PLAYER ----
   player.alive = true;
   player.downed = false;
-  player.hitsMax = 4;
-  player.hitsRemaining = 4;
+  player.hitsMax = 3;
+  player.hitsRemaining = 3;
   player.points = 420;
 
   // ✅ RESET GRENADES
@@ -2691,15 +2685,6 @@ function startMysteryRoll(finalText, onFinish) {
     quickRevive:false,
     quickReviveUsed:false
   };
-
-  // --- Reset Quick Revive bookkeeping so purchases are cleared on restart ---
-  // This ensures the perk machine can be bought again from scratch.
-  player.quickRevive = {
-    buys: 0,
-    maxBuys: 3
-  };
-  player.quickReviveSoldOut = false;
-  // -----------------------------------------------------------------------
 
   // ---- RESET GUNS ----
   player.guns = {};
@@ -2831,7 +2816,7 @@ function tryBuyPerk(perk, cost) {
   player.perks[perk] = true;
 
   if (perk === 'juggernog') {
-    player.hitsMax = 7;
+    player.hitsMax = 5;
     player.hitsRemaining = clamp(player.hitsRemaining + 2, 0, player.hitsMax);
 
   } else if (perk === 'speedCola') {
@@ -2844,7 +2829,7 @@ function tryBuyPerk(perk, cost) {
     }
 
   } else if (perk === 'staminUp') {
-    player.speed *= 1.85;
+    player.speed *= 1.5;
   }
 }
 
@@ -2971,7 +2956,8 @@ ctx.fillText(
 
 // ===== FOOTER / CONTROLS =====
 ctx.font = '16px system-ui';
-ctx.fillText('Press ESC to resume', canvas.width / 2, canvas.height / 2 + 175 + UI_Y_OFFSET);
+ctx.fillText('Press ESC to resume', canvas.width / 2, canvas.height / 2 + 155 + UI_Y_OFFSET);
+ctx.fillText('Press F5 to go back to Main Menu', canvas.width / 2, canvas.height / 2 + 175 + UI_Y_OFFSET);
 
 ctx.fillText('-- CONTROLS --', canvas.width / 2, canvas.height / 2 + 205 + UI_Y_OFFSET);
 ctx.fillText('W A S D = Move', canvas.width / 2, canvas.height / 2 + 220 + UI_Y_OFFSET);
@@ -3115,71 +3101,44 @@ function resolveZombieWallCollisionWithBoost(z, wall) {
 
 function handleZombieAttacks(z, now) {
   if (!z.alive) return;
-  if (player.downed) return;
 
   const dx = z.x - player.x;
   const dy = z.y - player.y;
   const dist = Math.hypot(dx, dy);
 
-  // Use attackRange if defined (boss), otherwise default reach
-  const reach = z.attackRange || (z.isBoss ? 35 : 26);
-
-  if (dist <= reach) {
-    // Initialize lastAttackTime if not set
-    if (z.lastAttackTime == null) z.lastAttackTime = 0;
-    if (z.attackCooldown == null) z.attackCooldown = z.isBoss ? 2.0 : 1.5;
-
-    if (now - z.lastAttackTime >= z.attackCooldown * 1000) {
+  if (dist <= z.attackRange) {
+    if (now - z.lastAttackTime >= z.attackCooldown) {
       z.lastAttackTime = now;
-      
-      // Skip if trap immunity active
-      if (now < player.trapDamageImmunityUntil) return;
-      
-      // Boss zombies deal more damage
-      const damage = z.isBoss ? (typeof BOSS_CONFIG !== 'undefined' ? BOSS_CONFIG.damageMultiplier : 2) : 1;
-      player.hitsRemaining -= damage;
-      player.lastHitTime = performance.now();
-      
-      // Add boss kill tracking when player dies to boss
-      if (player.hitsRemaining <= 0 && z.isBoss) {
-        // Boss got the killing blow - tracked elsewhere on zombie death
-      }
+      damagePlayer(1); // or whatever damage value you want
     }
   }
 }
 
 
-
-
   // Zombie spawning
-function roundZombieHP(r) {
-  const base = 100; // base HP round 1
-  return Math.floor(base * Math.pow(1.05, r-1));
-}
-
-function startRoundSpawns() {
-  // Check if this should be a boss round AND if boss spawns exist
-  const hasBossSpawns = bossSpawns.length > 0 && bossSpawns.filter(isSpawnUnlocked).length > 0;
-  isBossRound = (round % bossRoundInterval === 0) && round > 0 && hasBossSpawns;
-
+  function roundZombieHP(r) {
+    const base = 100; // base HP round 1
+    return Math.floor(base * Math.pow(1.05, r-1));
+  }
+  function startRoundSpawns() {
+  // Determine if this is a boss round (every 5th round)
+  const isBossRound = (round % 5 === 0 && round > 0);
+  
   if (isBossRound) {
-    // Boss round: spawn boss zombies
-    spawnBossZombies();
-    
-    spawnRemaining = 0; // No regular zombies on boss rounds
-
-    // Show boss round banner
-    showRoundBanner = true;
-    roundBannerText = `BOSS ROUND ${round}`;
-    roundBannerStart = performance.now();
-
+    // Check if we actually have boss spawns
+    if (bossSpawns.length > 0 && bossSpawns.some(isSpawnUnlocked)) {
+      spawnBossZombies();
+      spawnRemaining = 0; // No regular zombies
+    } else {
+      console.warn("Boss round triggered but no valid boss spawns found! Reverting to normal round.");
+      const count = 6 + round * 2;
+      spawnRemaining = count;
+    }
   } else {
-    // Normal round
     const count = 6 + round * 2;
     spawnRemaining = count;
-    spawnTimer = 0;
-    bossZombiesRemaining = 0;
   }
+  spawnTimer = 0;
 }
 
 
@@ -3224,43 +3183,11 @@ function startRoundSpawns() {
       }
     }
 
-    // Try to find a non-overlapping spawn position
-    let spawnX = s.x;
-    let spawnY = s.y;
-    const zombieRadius = 12;
-    let attempts = 0;
-    const maxAttempts = 20;
-    
-    while (attempts < maxAttempts) {
-      // Add small random offset
-      const angle = Math.random() * Math.PI * 2;
-      const offset = 15 + Math.random() * 20; // Increased offset
-      const tryX = s.x + Math.cos(angle) * offset;
-      const tryY = s.y + Math.sin(angle) * offset;
-      
-      // Check if position is inside walls
-      if (isInsideWall(tryX, tryY)) {
-        attempts++;
-        continue;
-      }
-      
-      // Check if position overlaps with other zombies
-      if (isPositionOverlappingWithZombies(tryX, tryY, zombieRadius)) {
-        attempts++;
-        continue;
-      }
-      
-      // Position is good
-      spawnX = tryX;
-      spawnY = tryY;
-      break;
-    }
-
     zombies.push({
-      x: spawnX,
-      y: spawnY,
+      x: s.x,
+      y: s.y,
       r: 12,
-      speed: rnd(6, 6),
+      speed: rnd(25, 35),
 
       hp,
       hpMax: hp,
@@ -3268,19 +3195,19 @@ function startRoundSpawns() {
       targetBarrier: targetBarrier,
       spawnedBehindBarrier: !!targetBarrier,
 
-      ignoreBarriers: false,
-      passedBarriers: new Set(),
+      ignoreBarriers: false,          // 🔒 once true, never target barriers again
+      passedBarriers: new Set(),      // ✅ track crossed barriers (IMPORTANT)
       
       spawnTime: performance.now(),
 
       // Barrier / player attack logic
-      attackBarrierDps: 12,
-      barrierHitCooldown: 1.5,
+      attackBarrierDps: 15,
+      barrierHitCooldown: 0.65,
       playerHitCooldown: 0,
 
       // Movement / stuck logic
-      lastX: spawnX,
-      lastY: spawnY,
+      lastX: s.x,
+      lastY: s.y,
       stuckTime: 0,
 
       alive: true
@@ -3289,103 +3216,141 @@ function startRoundSpawns() {
 }
 
 
-// Boss spawn queue variables (add near BOSS_CONFIG)
+let bossZombiesRemaining = 0;
 let bossSpawnQueue = [];
-let bossSpawnTimer = 0;
-const BOSS_SPAWN_INTERVAL = 3000; // 3 seconds between each boss spawn
+let bossSpawningInProgress = false;
 
 function spawnBossZombies() {
-  // Only spawn at boss spawn locations
   const spawns = bossSpawns.filter(isSpawnUnlocked);
   if (spawns.length === 0) return;
-  
-  // Spawn 5-10 boss zombies
+
   const count = Math.floor(Math.random() * (BOSS_CONFIG.maxSpawn - BOSS_CONFIG.minSpawn + 1)) + BOSS_CONFIG.minSpawn;
   bossZombiesRemaining = count;
-  
-  // HP scales with round: base HP * multiplier * (1 + round * 0.2)
+  bossSpawnQueue = [];
+
   const roundScaling = 1 + (round * 0.2);
   const baseHP = roundZombieHP(round) * BOSS_CONFIG.healthMultiplier * roundScaling;
-  
-  // Boss radius (increased size)
-  const bossRadius = 12 * BOSS_CONFIG.sizeMultiplier;
-  
+
+  // Prepare spawn queue with spawn points
   for (let i = 0; i < count; i++) {
     const s = spawns[Math.floor(Math.random() * spawns.length)];
-    
-    // Try to find a non-overlapping spawn position
-    let spawnX = s.x;
-    let spawnY = s.y;
-    let attempts = 0;
-    const maxAttempts = 20;
-    
-    while (attempts < maxAttempts) {
-      // Add larger random offset for bosses
-      const angle = Math.random() * Math.PI * 2;
-      const offset = 25 + Math.random() * 30; // Larger offset for bosses
-      const tryX = s.x + Math.cos(angle) * offset;
-      const tryY = s.y + Math.sin(angle) * offset;
-      
-      // Check if position is inside walls
-      if (isInsideWall(tryX, tryY)) {
-        attempts++;
-        continue;
-      }
-      
-      // Check if position overlaps with other zombies (including bosses)
-      if (isPositionOverlappingWithZombies(tryX, tryY, bossRadius)) {
-        attempts++;
-        continue;
-      }
-      
-      // Position is good
-      spawnX = tryX;
-      spawnY = tryY;
-      break;
-    }
-    
-    zombies.push({
-      x: spawnX, y: spawnY,
-      r: bossRadius,
-      speed: rnd(9, 9) * BOSS_CONFIG.speedMultiplier,
-      hp: baseHP, hpMax: baseHP,
-      isBoss: true,
-      targetBarrier: null,
-      spawnedBehindBarrier: false,
-      ignoreBarriers: true,
-      passedBarriers: new Set(),
-      spawnTime: performance.now(),
-      attackBarrierDps: 24,
-      barrierHitCooldown: 1.0,
-      playerHitCooldown: 0,
-      attackRange: 30,
-      lastX: spawnX, lastY: spawnY,
-      stuckTime: 0,
-      alive: true
+    bossSpawnQueue.push({
+      x: s.x,
+      y: s.y,
+      hp: baseHP,
+      hpMax: baseHP,
     });
   }
+
+  if (!bossSpawningInProgress) {
+    bossSpawningInProgress = true;
+    spawnNextBoss();
+  }
 }
 
-// Add this to your zombie death/kill logic where you handle z.hp <= 0:
-// (Find where you award points for zombie kills and add this check)
+function spawnNextBoss() {
+  if (bossSpawnQueue.length === 0) {
+    bossSpawningInProgress = false;
+    return;
+  }
 
+  const spawnPoint = bossSpawnQueue.shift();
 
-function isPositionOverlappingWithZombies(x, y, radius, excludeZombie = null) {
-  for (const z of zombies) {
-    if (z === excludeZombie || !z.alive) continue;
-    const dx = x - z.x;
-    const dy = y - z.y;
-    const dist = Math.hypot(dx, dy);
-    const minDist = radius + (z.r || z.radius || 12);
-    if (dist < minDist) {
-      return true;
+  // Find a non-overlapping position near spawnPoint
+  const position = findNonOverlappingPosition(spawnPoint.x, spawnPoint.y, 12 * BOSS_CONFIG.sizeMultiplier);
+
+  zombies.push({
+    x: position.x,
+    y: position.y,
+    r: 12 * BOSS_CONFIG.sizeMultiplier,
+    speed: rnd(30, 30) * BOSS_CONFIG.speedMultiplier,
+    hp: spawnPoint.hp,
+    hpMax: spawnPoint.hpMax,
+    isBoss: true,
+    targetBarrier: null,
+    spawnedBehindBarrier: false,
+    ignoreBarriers: true,
+    passedBarriers: new Set(),
+    spawnTime: performance.now(),
+    attackBarrierDps: 24,
+    barrierHitCooldown: 1.0,
+    playerHitCooldown: 0,
+    attackRange: 30,
+    lastX: position.x,
+    lastY: position.y,
+    stuckTime: 0,
+    alive: true
+  });
+
+  // Schedule next boss spawn after a delay (e.g., 2 seconds)
+  setTimeout(spawnNextBoss, 2000);
+}
+
+// Helper function to find a non-overlapping position near (x, y)
+function findNonOverlappingPosition(x, y, radius) {
+  const maxAttempts = 20;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // Try random offset within a radius
+    const offsetX = (Math.random() - 0.5) * radius * 4;
+    const offsetY = (Math.random() - 0.5) * radius * 4;
+    const newX = x + offsetX;
+    const newY = y + offsetY;
+
+    // Check overlap with existing bosses
+    const overlapping = zombies.some(z => z.isBoss && distance(z.x, z.y, newX, newY) < (z.r + radius));
+    if (!overlapping) {
+      return { x: newX, y: newY };
     }
   }
-  return false;
+  // If no non-overlapping position found, return original
+  return { x, y };
 }
 
+// Utility distance function
+function distance(x1, y1, x2, y2) {
+  return Math.hypot(x2 - x1, y2 - y1);
+}
 
+// Call this function when a boss is defeated to spawn the next one
+function onBossDefeated() {
+  bossZombiesRemaining--;
+  if (bossZombiesRemaining > 0) {
+    // Only spawn next boss if not already spawning
+    if (!bossSpawningInProgress) {
+      bossSpawningInProgress = true;
+      spawnNextBoss();
+    }
+  }
+}
 
+// Call this function when a boss zombie dies
+// Updated function with debugging
+function onBossZombieKilled(x, y) {
+  bossZombiesRemaining--;
+  console.log("Boss zombie killed! Remaining:", bossZombiesRemaining);
+  
+  if (bossZombiesRemaining <= 0) {
+    console.log("Last boss killed! Dropping max ammo at:", x, y);
+    dropMaxAmmo(x, y);
+    isBossRound = false; // End boss round
+  }
+  
+  player.points += 690;
+  PlayerStats.addPoints(690);
+  PlayerStats.addBossKill(); // Add this to track boss kills
+}
+
+// Example dropMaxAmmo function (adjust as needed)
+function dropMaxAmmo(x, y) {
+  // Add a max ammo pickup at the boss location
+  powerDrops.push({
+    x: x,
+    y: y,
+    type: 'MAX', // Make sure this matches your power-up system
+    spawnTime: performance.now()
+  });
+  console.log("Max ammo dropped at:", x, y);
+}
 
 
 function checkZombiePassedBarrier(z, barrier) {
@@ -3617,6 +3582,7 @@ function updatePowerDrops(now) {
   // Pay once
   player.points -= door.cost;
   PlayerStats.addDoorOpened?.();
+  PlayerStats.addDoor();
 
   // Open this door + all linked doors
   const group = door.linkGroup ?? null;
@@ -3860,7 +3826,7 @@ function resolveCircleTriangleCollision(circle, tri) {
     player.alive = true;
 
 // Restore health
-    player.hitsMax = player.perks.juggernog ? 7 : 4;
+    player.hitsMax = player.perks.juggernog ? 5 : 3;
     player.hitsRemaining = player.hitsMax;
 
 // Consume Quick Revive
@@ -4202,48 +4168,35 @@ function resolveCircleTriangleCollision(circle, tri) {
     }
 
 
-    function rayHitsWall(x1, y1, x2, y2) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const steps = Math.max(Math.abs(dx), Math.abs(dy)) * 2;
-  const stepX = dx / steps;
-  const stepY = dy / steps;
+    function rayHitsWall(x, y, dx, dy, dist) {
+      const steps = 6;
+      const step = dist / steps;
 
-  for (let i = 0; i <= steps; i++) {
-    const px = x1 + stepX * i;
-    const py = y1 + stepY * i;
+      for (let i = 1; i <= steps; i++) {
+        const px = x + dx * step * i;
+        const py = y + dy * step * i;
 
-    // Check walls (assuming w.x, w.y are center coordinates)
-    for (const w of walls) {
-      const left = w.x - w.w / 2;
-      const right = w.x + w.w / 2;
-      const top = w.y - w.h / 2;
-      const bottom = w.y + w.h / 2;
+        for (const w of walls) {
+          const left   = w.x - w.w / 2;
+          const right  = w.x + w.w / 2;
+          const top    = w.y - w.h / 2;
+          const bottom = w.y + w.h / 2;
 
-      if (px > left && px < right && py > top && py < bottom) {
-        return true;
+          if (px > left && px < right && py > top && py < bottom) {
+            return true;
+          }
+        }
+
+        for (const b of barriers) {
+          if (b.open) continue;
+          if (px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h) {
+            return true;
+          }
+        }
       }
-    }
 
-    // Check barriers (rectangular, top-left origin)
-    for (const b of barriers) {
-      if (b.open) continue;
-      if (px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h) {
-        return true;
-      }
+      return false;
     }
-
-    // Check doors (rectangular, top-left origin)
-    for (const d of doors) {
-      if (d.open) continue;
-      if (px > d.x && px < d.x + d.w && py > d.y && py < d.y + d.h) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
 
 
   
@@ -4539,7 +4492,7 @@ function drawLowHealthVignette(ctx, healthPct) {
 
   function maybeDropPowerUp(x, y) {
     // Base drop chance (classic zombies feel)
-    if (Math.random() > 0.00095) return; // 15% overall drop chance
+    if (Math.random() > 0.0085) return; // 15% overall drop chance
 
     const rarity = rollDropRarity(round);
     if (!rarity) return;
@@ -4586,6 +4539,8 @@ function drawLowHealthVignette(ctx, healthPct) {
     updateHealthRegen(dt);
     updatePowerDrops(now);
     updateGrenades(dt);
+
+    // (do NOT check round end yet — we wait until after zombie updates)
 
 
 
@@ -4748,100 +4703,50 @@ for (const wall of walls) {
   }
 }
 
-  // Add this inside the update(dt) function, after the existing collision resolution code
-// Zombie-to-zombie collision resolution (handles both regular and boss zombies)
-for (let i = 0; i < zombies.length; i++) {
-  const z1 = zombies[i];
-  if (!z1.alive) continue;
-  
-  for (let j = i + 1; j < zombies.length; j++) {
-    const z2 = zombies[j];
-    if (!z2.alive) continue;
-    
-    const dx = z2.x - z1.x;
-    const dy = z2.y - z1.y;
-    const dist = Math.hypot(dx, dy);
-    const minDist = (z1.r || z1.radius || 12) + (z2.r || z2.radius || 12);
-    
-    if (dist < minDist && dist > 0) {
-      // Separate the zombies
-      const overlap = minDist - dist;
-      const nx = dx / dist;
-      const ny = dy / dist;
-      
-      // Move zombies apart (heavier zombies move less)
-      const totalMass = (z1.hpMax || 100) + (z2.hpMax || 100);
-      const ratio1 = (z2.hpMax || 100) / totalMass;
-      const ratio2 = (z1.hpMax || 100) / totalMass;
-      
-      z1.x -= nx * overlap * ratio1 * 0.5;
-      z1.y -= ny * overlap * ratio1 * 0.5;
-      z2.x += nx * overlap * ratio2 * 0.5;
-      z2.y += ny * overlap * ratio2 * 0.5;
-    }
-  }
-}
 
-
-    // Handle round cooldown timer
-    if (roundCooldown && now >= roundCooldownEnd) {
-      roundCooldown = false;
-      showRoundBanner = false;
-      RoundMusic.playStart();
-      startRoundSpawns();
-      
-    }
+    
 
     for (const z of zombies) {
-  for (const b of barriers) {
-    // Resolve collision between zombie and barrier
-    resolveEntityBarrierCollision(z, b);
-    checkZombiePassedBarrier(z, b);
+      for (const b of barriers) {
+        resolveEntityBarrierCollision(z, b);
+        checkZombiePassedBarrier(z, b);
 
-    // Barrier timeout check: if zombie spawned behind barrier and should ignore barriers now
-    if (z.spawnedBehindBarrier && shouldZombieIgnoreBarriers(z)) {
-      z.spawnedBehindBarrier = false;
-      z.targetBarrier = null;
-      z.blockedByBarrier = null;
-    }
+        // ⏱️ Barrier timeout check
+        if (z.spawnedBehindBarrier && shouldZombieIgnoreBarriers(z)) {
+          z.spawnedBehindBarrier = false;
+          z.targetBarrier = null;
+          z.blockedByBarrier = null;
+        }
 
-    // Boss zombies ignore all barriers
-    if (z.isBoss) continue;
+        if (b.hp <= 0) continue; // only ignore broken barriers
 
-    // Ignore broken/open barriers
-    if (b.hp <= 0 || b.open) continue;
+        if (
+          rectCircleCollide(
+          z.x, z.y, z.r,
+          b.x, b.y, b.w, b.h
+          )
+        ) {
+          // PUSH ZOMBIE OUT (same as player logic)
+          const cx = b.x + b.w / 2;
+          const cy = b.y + b.h / 2;
 
-    // Check collision between zombie circle and barrier rectangle
-    if (
-      rectCircleCollide(
-        z.x, z.y, z.r,
-        b.x, b.y, b.w, b.h
-      )
-    ) {
-      // Calculate barrier center
-      const cx = b.x + b.w / 2;
-      const cy = b.y + b.h / 2;
+          const dx = z.x - cx;
+          const dy = z.y - cy;
 
-      // Vector from barrier center to zombie
-      const dx = z.x - cx;
-      const dy = z.y - cy;
+          const overlapX = b.w / 2 + z.r - Math.abs(dx);
+          const overlapY = b.h / 2 + z.r - Math.abs(dy);
 
-      // Calculate overlap distances on X and Y axes
-      const overlapX = b.w / 2 + z.r - Math.abs(dx);
-      const overlapY = b.h / 2 + z.r - Math.abs(dy);
+          if (overlapX < overlapY) {
+            z.x += dx > 0 ? overlapX : -overlapX;
+          } else {
+            z.y += dy > 0 ? overlapY : -overlapY;
+          }
 
-      // Push zombie out along the axis with the least overlap
-      if (overlapX < overlapY) {
-        z.x += dx > 0 ? overlapX : -overlapX;
-      } else {
-        z.y += dy > 0 ? overlapY : -overlapY;
+          // STOP zombie movement when colliding
+          z.blockedByBarrier = b;
+        }
       }
-
-      // Mark zombie as blocked by this barrier to stop movement
-      z.blockedByBarrier = b;
     }
-  }
-}
 
     for (const t of zombieTraps) {
 
@@ -4913,7 +4818,7 @@ for (let i = 0; i < zombies.length; i++) {
 
       if (player.perks.juggernog) {
       // 🔥 NEW RULE
-        if (player.hitsRemaining < 7) {
+        if (player.hitsRemaining < 5) {
           player.hitsRemaining = 0; // instant down
         } else {
           player.hitsRemaining = 1; // barely survive
@@ -4992,21 +4897,18 @@ for (let i = 0; i < zombies.length; i++) {
 
 
     // ---------- NEW: Zombie vs Zombie collision ----------
-    // Inside the update(dt) function in zombies.html
+    for (let i = 0; i < zombies.length; i++) {
+      const z1 = zombies[i];
+      if (!z1.alive) continue;
 
-// ---- Zombie vs Zombie collision resolution ----
-for (let i = 0; i < zombies.length; i++) {
-  const z1 = zombies[i];
-  if (!z1.alive) continue;
+      for (let j = i + 1; j < zombies.length; j++) {
+        const z2 = zombies[j];
+        if (!z2.alive) continue;
 
-  for (let j = i + 1; j < zombies.length; j++) {
-    const z2 = zombies[j];
-    if (!z2.alive) continue;
-
-    // This function calculates the overlap and pushes both zombies apart
-    resolveCircleCollision(z1, z2);
-  }
-}
+        resolveCircleCollision(z1, z2);
+      }
+      
+    }
 
     
 
@@ -5075,27 +4977,55 @@ for (let i = 0; i < zombies.length; i++) {
 
     // Update zombies
 
-
     
+
+
+    function onRoundEnded() {
+  const alive = zombies.filter(z => z.alive !== false).length;
+  if (alive > 0 || spawnRemaining > 0) return;
+  if (roundCooldown) return; // Use roundCooldown instead of roundTransitionTimer
+
+  RoundMusic.playEnd();
+  PlayerStats.addRoundSurvived();
+
+  
+  // Start 15 seconds cooldown before next round
+  roundCooldown = true;
+  roundCooldownEnd = performance.now() + 15000; // 15 seconds cooldown
+  showRoundBanner = true;
+  roundBannerText = `ROUND ${round + 1}`;
+  roundBannerStart = performance.now();
+}
+
+// handle cooldown expiry (put inside update, where `now` is performance.now())
+if (roundCooldown && now >= roundCooldownEnd) {
+  roundCooldown = false;
+  showRoundBanner = false;
+  round++;
+  uiRound.textContent = round;
+  RoundMusic.playStart();
+
+
+  if (player.grenades < 3) { 
+    player.grenades += 1;
+  }
+  // Update UI if you have a grenade counter element
+
+
+  startRoundSpawns();
+}
 
 
   
 
-    aliveCount = 0;
+   aliveCount = 0;
     for (const z of zombies) {
-  if (!z.alive) continue;
+      if (!z.alive) continue;
+      // Count this zombie as alive
+      aliveCount++;
 
-  // upkeep + attacks
-  clearBarrierIfPassed(z);
-  handleZombieAttacks(z, now);
-  aliveCount++;
-  z.skipMove = false;
-
-  // ===============================
-  // MONKEY BOMB OVERRIDE (HARD OVERRIDE)
-  // ===============================
+  // Handle forced target override (e.g., monkey bomb)
   if (z.forcedTarget) {
-    // Ignore ALL blockers
     z.skipMove = false;
     z.blockedByBarrier = null;
 
@@ -5106,26 +5036,18 @@ for (let i = 0; i < zombies.length; i++) {
     const nx = dx / dist;
     const ny = dy / dist;
 
-    // 🔥 DIRECT POSITION MOVE (bypasses freeze bugs)
     z.x += nx * z.speed * dt;
     z.y += ny * z.speed * dt;
 
-    // Optional facing
     z.angle = Math.atan2(ny, nx);
 
     handleZombieStuck(z, dt);
-    continue; // ⛔ skip ALL other logic
+    continue;
   }
 
-  // ===============================
-  // NORMAL TARGETING LOGIC
-  // ===============================
+  // Normal targeting logic
   let targetX = player.x;
   let targetY = player.y;
-
-  const dxp = player.x - z.x;
-  const dyp = player.y - z.y;
-  const distPlayer = Math.hypot(dxp, dyp);
 
   const fearing = player.zombieFearTimer > 0;
 
@@ -5137,60 +5059,26 @@ for (let i = 0; i < zombies.length; i++) {
 
     targetX = z.x + (dx / len) * 100;
     targetY = z.y + (dy / len) * 100;
-  } else {
-    targetX = player.x;
-    targetY = player.y;
   }
 
-  let chasingPlayer = true;
+  let chasingPlayer = !fearing;
 
-  // ===============================
-// BARRIER LOGIC (optimized: use closest point on rect + early bailouts)
-// ===============================
-const MAX_BARRIER_CHECK_DIST = 200; // max distance to consider barrier for a zombie
-
-for (const z of zombies) {
-  if (!z.alive) continue;
-
-  // Precompute distance to player once
-  const distPlayer = Math.hypot(player.x - z.x, player.y - z.y);
-
-  // Filter barriers by distance first to reduce checks
-  const nearbyBarriers = barriers.filter(b => {
-    if (b.hp <= 0 || b.open) return false;
-    // Approximate barrier center
-    const bx = b.x + b.w / 2;
-    const by = b.y + b.h / 2;
-    const dist = Math.hypot(z.x - bx, z.y - by);
-    return dist < MAX_BARRIER_CHECK_DIST;
-  });
-
+  // Barrier logic: assign targetBarrier if blocking line of sight
+  const MAX_BARRIER_CHECK_DIST = 200;
   let assignedBarrier = null;
 
-  for (const b of nearbyBarriers) {
-    // resolve collision and pass checks as before
-    resolveEntityBarrierCollision(z, b);
-    checkZombiePassedBarrier(z, b);
+  for (const b of barriers) {
+    if (b.hp <= 0 || b.open) continue;
 
-    // Barrier timeout check
-    if (z.spawnedBehindBarrier && shouldZombieIgnoreBarriers(z)) {
-      z.spawnedBehindBarrier = false;
-      z.targetBarrier = null;
-      z.blockedByBarrier = null;
-    }
-
-    // Boss zombies ignore all barriers
-    if (z.isBoss) continue;
-
-    // Closest point on barrier rect to zombie
     const bxClosest = clamp(z.x, b.x, b.x + b.w);
     const byClosest = clamp(z.y, b.y, b.y + b.h);
     const distBarrier = Math.hypot(z.x - bxClosest, z.y - byClosest);
 
-    // Only check rayHitsWall if zombie is close enough and barrier is between zombie and player roughly
+    if (distBarrier > MAX_BARRIER_CHECK_DIST) continue;
+
+    // Check if barrier blocks line of sight
     let barrierBlocksLOS = false;
-    if (distBarrier < distPlayer) {
-      // Simple bounding box check: is barrier roughly between zombie and player?
+    if (distBarrier < Math.hypot(player.x - z.x, player.y - z.y)) {
       const minX = Math.min(z.x, player.x);
       const maxX = Math.max(z.x, player.x);
       const minY = Math.min(z.y, player.y);
@@ -5203,164 +5091,118 @@ for (const z of zombies) {
     if (z.spawnedBehindBarrier || barrierBlocksLOS) {
       assignedBarrier = b;
       z.targetBarrier = b;
-    }
-
-    // If this zombie is assigned to this barrier, attempt to attack when in range
-    if (z.targetBarrier === b) {
-      // Bias: make attack range a bit larger for very flat (horizontal) barriers
-      const flatness = b.w > b.h ? (b.w / Math.max(1, b.h)) : 1;
-      const extraRange = flatness > 3 ? 6 : 2; // larger buffer for very wide low barriers
-      const attackRange = (z.attackRange ?? (z.r + 6)) + extraRange;
-
-      // Also allow attacking if physically overlapping (collision) even if dist slightly larger
-      const overlapping = rectCircleCollide(z.x, z.y, z.r, b.x, b.y, b.w, b.h);
-
-      // Only attack if barrier is blocking the path or zombie spawned behind it
-      if ((z.spawnedBehindBarrier || barrierBlocksLOS) && (distBarrier <= attackRange || overlapping)) {
-        // mark blocked so movement code can stop movement
-        z.blockedByBarrier = b;
-        z.skipMove = true;
-
-        // initialize hit interval if missing
-        if (z.barrierHitInterval == null) z.barrierHitInterval = 0.3;
-        if (z.barrierHitCooldown == null) z.barrierHitCooldown = 0;
-
-        z.barrierHitCooldown -= dt;
-        if (z.barrierHitCooldown <= 0) {
-          // apply one hit (damage per hit stored in z.attackBarrierDps)
-          b.hp -= z.attackBarrierDps;
-          // reset cooldown to the configured interval
-          z.barrierHitCooldown = z.barrierHitInterval;
-
-          if (b.hp <= 0) {
-            b.hp = 0;
-            b.open = true;
-            z.blockedByBarrier = null;
-            // once open, clear target so zombie goes back to player
-            if (z.targetBarrier === b) z.targetBarrier = null;
-          }
-        }
-      }
-    }
-
-    // If there's a physical collision (z inside barrier bounds), push out as before
-    if (
-      rectCircleCollide(
-        z.x, z.y, z.r,
-        b.x, b.y, b.w, b.h
-      )
-    ) {
-      const cx = b.x + b.w / 2;
-      const cy = b.y + b.h / 2;
-
-      const dx = z.x - cx;
-      const dy = z.y - cy;
-
-      const overlapX = b.w / 2 + z.r - Math.abs(dx);
-      const overlapY = b.h / 2 + z.r - Math.abs(dy);
-
-      if (overlapX < overlapY) {
-        z.x += dx > 0 ? overlapX : -overlapX;
-      } else {
-        z.y += dy > 0 ? overlapY : -overlapY;
-      }
-
-      // STOP zombie movement when colliding
-      z.blockedByBarrier = b;
-      z.skipMove = true;
+      chasingPlayer = false;
+      targetX = b.x + b.w / 2;
+      targetY = b.y + b.h / 2;
+      break;
     }
   }
 
-  // If no barrier assigned, clear targetBarrier
   if (!assignedBarrier) {
     z.targetBarrier = null;
   }
 
-  // If barrier not chosen/attacked, ensure primary target remains player
-  if (chasingPlayer) {
-    targetX = player.x;
-    targetY = player.y;
+  // Handle barrier attack and blocking
+  if (z.targetBarrier) {
+    const b = z.targetBarrier;
+    const flatness = b.w > b.h ? (b.w / Math.max(1, b.h)) : 1;
+    const extraRange = flatness > 3 ? 6 : 2;
+    const attackRange = (z.attackRange ?? (z.r + 6)) + extraRange;
+
+    const overlapping = rectCircleCollide(z.x, z.y, z.r, b.x, b.y, b.w, b.h);
+    const bxClosest = clamp(z.x, b.x, b.x + b.w);
+    const byClosest = clamp(z.y, b.y, b.y + b.h);
+    const distBarrier = Math.hypot(z.x - bxClosest, z.y - byClosest);
+
+    if ((z.spawnedBehindBarrier || distBarrier <= attackRange || overlapping)) {
+      z.blockedByBarrier = b;
+      z.skipMove = true;
+
+      if (z.barrierHitInterval == null) z.barrierHitInterval = 0.3;
+      if (z.barrierHitCooldown == null) z.barrierHitCooldown = 0;
+
+      z.barrierHitCooldown -= dt;
+      if (z.barrierHitCooldown <= 0) {
+        b.hp -= z.attackBarrierDps;
+        z.barrierHitCooldown = z.barrierHitInterval;
+
+        if (b.hp <= 0) {
+          b.hp = 0;
+          b.open = true;
+          z.blockedByBarrier = null;
+          if (z.targetBarrier === b) z.targetBarrier = null;
+        }
+      }
+    }
+  } else {
     z.blockedByBarrier = null;
   }
 
-  // ===============================
-// FINAL MOVEMENT (Last Zombie Sprint)
-// ===============================
-if (!z.skipMove) {
-  // 1. Base Speed: Use the zombie's individual speed
-  let baseSpeed = z.speed;
+  // Final movement if not blocked
+  if (!z.skipMove) {
+    let baseSpeed = z.speed;
 
-  // 2. Last Zombie Sprint: If this is the only zombie left, make it faster
-  const aliveZombies = zombies.filter(zombie => zombie.alive).length;
-  if (aliveZombies === 1) {
-    baseSpeed *= 8.0; // 80% speed boost for the last zombie
-  }
-
-  // 3. Desired direction -> normalized
-  let dx = targetX - z.x;
-  let dy = targetY - z.y;
-  let dist = Math.hypot(dx, dy) || 0.0001;
-  let dirX = dx / dist;
-  let dirY = dy / dist;
-
-  // 4. Wall avoidance: cast multiple short rays around the zombie
-  const avoidForce = { x: 0, y: 0 };
-  const rayCount = 8;
-  const rayLength = 25;
-
-  for (let i = 0; i < rayCount; i++) {
-    const angle = (i / rayCount) * Math.PI * 2;
-    const rx = z.x + Math.cos(angle) * rayLength;
-    const ry = z.y + Math.sin(angle) * rayLength;
-
-    if (rayHitsWall(z.x, z.y, rx, ry)) {
-      // push away from wall direction
-      avoidForce.x -= Math.cos(angle);
-      avoidForce.y -= Math.sin(angle);
+    // Last zombie sprint boost
+    const aliveZombies = zombies.filter(zombie => zombie.alive).length;
+    if (aliveZombies === 1) {
+      baseSpeed *= 1.8; // Slightly less extreme boost for balance
     }
+
+    let dx = targetX - z.x;
+    let dy = targetY - z.y;
+    let dist = Math.hypot(dx, dy) || 0.0001;
+    let dirX = dx / dist;
+    let dirY = dy / dist;
+
+    // Wall avoidance with rays
+    const avoidForce = { x: 0, y: 0 };
+    const rayCount = 8;
+    const rayLength = 25;
+
+    for (let i = 0; i < rayCount; i++) {
+      const angle = (i / rayCount) * Math.PI * 2;
+      const rx = z.x + Math.cos(angle) * rayLength;
+      const ry = z.y + Math.sin(angle) * rayLength;
+
+      if (rayHitsWall(z.x, z.y, rx, ry)) {
+        avoidForce.x -= Math.cos(angle);
+        avoidForce.y -= Math.sin(angle);
+      }
+    }
+
+    const avoidWeight = 0.4;
+    let moveX = dirX + avoidForce.x * avoidWeight;
+    let moveY = dirY + avoidForce.y * avoidWeight;
+    let moveLen = Math.hypot(moveX, moveY) || 0.0001;
+    moveX /= moveLen;
+    moveY /= moveLen;
+
+    // Wall speed boost mechanics
+    if (z.wallSpeedBoost == null) z.wallSpeedBoost = 1;
+    if (z.wallBoostTimer == null) z.wallBoostTimer = 0;
+
+    if (z.wallBoostTimer > 0) {
+      z.wallBoostTimer -= dt * 1000;
+      z.wallSpeedBoost = Math.min(2.5, z.wallSpeedBoost + dt * 1.5);
+    } else {
+      z.wallSpeedBoost = Math.max(1, z.wallSpeedBoost - dt * 0.5);
+    }
+
+    const boost = z.wallSpeedBoost;
+
+    z.vx = moveX * baseSpeed * boost;
+    z.vy = moveY * baseSpeed * boost;
+
+    z.x += z.vx * dt;
+    z.y += z.vy * dt;
+
+    z.angle = Math.atan2(z.vy, z.vx);
   }
 
-  // 5. Combine movement and avoidance (reduced avoid weight to prioritize chasing)
-  const avoidWeight = 0.4;
-  let moveX = dirX + avoidForce.x * avoidWeight;
-  let moveY = dirY + avoidForce.y * avoidWeight;
-  let moveLen = Math.hypot(moveX, moveY) || 0.0001;
-  moveX /= moveLen;
-  moveY /= moveLen;
+  z.skipMove = false;
 
-  // 6. Wall speed boost mechanics (smoother boost and decay)
-  if (z.wallSpeedBoost == null) z.wallSpeedBoost = 1;
-  if (z.wallBoostTimer == null) z.wallBoostTimer = 0;
-
-  if (z.wallBoostTimer > 0) {
-    z.wallBoostTimer -= dt * 1000;
-    z.wallSpeedBoost = Math.min(2.5, z.wallSpeedBoost + dt * 1.5);
-  } else {
-    z.wallSpeedBoost = Math.max(1, z.wallSpeedBoost - dt * 0.5);
-  }
-
-  const boost = z.wallSpeedBoost;
-
-  z.vx = moveX * baseSpeed * boost;
-  z.vy = moveY * baseSpeed * boost;
-
-  // apply movement
-  z.x += z.vx * dt;
-  z.y += z.vy * dt;
-
-  // optional facing
-  z.angle = Math.atan2(z.vy, z.vx);
-}
-
-// reset skip flag for next frame
-z.skipMove = false;
-
-// stuck detection / recovery
-handleZombieStuck(z, dt);
-
-// resolve collisions with player
-resolveCircleCollision(player, z);
-}
+  handleZombieStuck(z, dt);
+  resolveCircleCollision(player, z);
 
 
       if (player.zombieFearTimer > 0) {
@@ -5441,65 +5283,56 @@ if (!z.skipMove) {
 
       resolveCircleCollision(player, z);
 
-      // ---- NEW: Zombie vs barrier collision ----
-if (z.blockedByBarrier && !z.isBoss) {
-  z.barrierHitCooldown -= dt;
+      // ---------- NEW: Zombie vs barrier collision ----------
+    if (z.blockedByBarrier) {
+      z.barrierHitCooldown -= dt;
 
-  if (z.barrierHitCooldown <= 0) {
-    z.blockedByBarrier.hp -= z.attackBarrierDps;
-    z.barrierHitCooldown = 1.5;
+      if (z.barrierHitCooldown <= 0) {
+        z.blockedByBarrier.hp -= z.attackBarrierDps;
+        z.barrierHitCooldown = 0.65;
 
-    if (z.blockedByBarrier.hp <= 0) {
-      z.blockedByBarrier.hp = 0;
-      z.blockedByBarrier.open = true;
+        if (z.blockedByBarrier.hp <= 0) {
+          z.blockedByBarrier.hp = 0;
+          z.blockedByBarrier.open = true;
+        }
+      }
+
+      continue; // DO NOT MOVE THROUGH
     }
-  }
 
-  continue; // DO NOT MOVE THROUGH
-}
+      // ------------------------------------------------------
 
-// ---- Boss zombies should never be blocked ----
-if (z.isBoss) {
-  z.blockedByBarrier = null;
-}
+      // If near player, deal hits intermittently
+    // Determine reach based on zombie type (Bosses are bigger and reach further)
+    const playerReach = z.isBoss ? 45 : 26;
+    const d2p = Math.hypot(z.x - player.x, z.y - player.y);
+    
+    if (player.downed) continue;
 
-// ----
+    if (d2p <= playerReach) {
+        z.playerHitCooldown -= dt;
 
-// If near player, deal hits intermittently
-const playerReach = z.isBoss ? 40 : 26; // Bigger reach for boss zombies
-const d2p = Math.hypot(z.x - player.x, z.y - player.y);
-if (player.downed) continue;
+        if (z.playerHitCooldown <= 0) {
+            player.lastHitTime = now;
+            
+            // ⛔ ignore zombie damage briefly after trap hit
+            if (now < player.trapDamageImmunityUntil) continue;
 
-if (d2p <= playerReach) {
-    z.playerHitCooldown -= dt;
+            // Bosses deal more damage (reduce more hits/health)
+            const damage = z.isBoss ? (BOSS_CONFIG.damageMultiplier || 2) : 1;
+            player.hitsRemaining -= damage;
+            
+            player.lastHitTime = performance.now(); // 🔥 REQUIRED
 
-    if (z.playerHitCooldown <= 0) {
-        if (player.downed) continue;
-        // ⛔ ignore zombie damage briefly after trap hit
-        if (now < player.trapDamageImmunityUntil) continue;
+            // Bosses hit slightly faster/slower depending on preference (0.4s here)
+            z.playerHitCooldown = z.isBoss ? 1.5 : 1.5;
 
-        // Boss zombies deal more damage
-        const damage = z.isBoss ? BOSS_CONFIG.damageMultiplier : 1;
-        player.hitsRemaining -= damage;
-        player.lastHitTime = performance.now();
-
-        z.playerHitCooldown = z.isBoss ? 0.4 : 0.5; // Bosses attack slightly faster
+        }
+      }
     }
-}}
 
     // Round progression
-    // Round progression
-    if (aliveCount === 0 && spawnRemaining === 0 && !roundCooldown) {
-      round += 1;
-      startRoundCooldown();
-      RoundMusic.playEnd();
-      PlayerStats.addRoundSurvived();
-      player.grenades = Math.min(
-        player.grenades + 2,
-        player.grenadesMax
-      );
 
-    }
 
 
     //----------------
@@ -5524,53 +5357,36 @@ if (d2p <= playerReach) {
 
     // ---------- BULLET vs ZOMBIE DAMAGE ----------
     for (const bullet of bullets) {
-      if (bullet.life <= 0) continue;
+  if (bullet.life <= 0) continue;
 
-      for (const z of zombies) {
-        if (!z.alive) continue;
+  for (const z of zombies) {
+    if (!z.alive) continue;
 
-        const dx = bullet.x - z.x;
-        const dy = bullet.y - z.y;
-        const hitDist = z.r + 2;
+    const dx = bullet.x - z.x;
+    const dy = bullet.y - z.y;
+    const hitDist = z.r + 2;
 
-        if (dx * dx + dy * dy <= hitDist * hitDist) {
-          // ✅ DAMAGE APPLIED
-          const dmg = activePowers.insta ? z.hp : bullet.damage;
-          z.hp -= dmg;
-          bullet.life = 0;
+    if (dx * dx + dy * dy <= hitDist * hitDist) {
+      // ✅ DAMAGE APPLIED
+      const dmg = activePowers.insta ? z.hp : bullet.damage;
+      z.hp -= dmg;
+      bullet.life = 0;
 
-          if (z.hp <= 0) {
-  z.alive = false;
-  awardKill();
-  
-  // Boss kill rewards
-  if (z.isBoss) {
-    player.points += 690; // Bonus points for boss
-    PlayerStats.addPoints(690);
-    PlayerStats.addBossKill();
-    
-    // Check if last boss - drop max ammo
-    const bossesAlive = zombies.filter(zz => zz.alive && zz.isBoss).length;
-    if (bossesAlive === 0 && isBossRound) {
-      // Drop MAX AMMO
-      powerDrops.push({
-        type: 'MAX',
-        x: z.x,
-        y: z.y,
-        r: 16,
-        spawnedAt: performance.now(),
-        lifetime: 30000
-      });
-    }
-  } else {
-    tryDropPower(z.x, z.y);
-    maybeDropPowerUp(z.x, z.y);
-  }
-}
-          break;
+      if (z.hp <= 0) {
+        z.alive = false;
+
+        if (z.isBoss) {
+          onBossZombieKilled(z.x, z.y);
+        } else {
+          awardKill();
+          tryDropPower(z.x, z.y);
+          maybeDropPowerUp(z.x, z.y);
         }
       }
+      break;
     }
+  }
+}
 
     // remove dead bullets
     for (let i = bullets.length - 1; i >= 0; i--) {
@@ -5601,7 +5417,6 @@ if (d2p <= playerReach) {
         bullets.splice(i, 1);
       }
     }
-
 
 
 
@@ -5648,6 +5463,16 @@ if (d2p <= playerReach) {
         quickRevive:'Quick Revive'
       }[k]))
       .filter(Boolean);
+
+
+      // After all zombie/bullet/powerup processing:
+// Check round end now that aliveCount and spawnRemaining are final for this frame
+checkRoundEnd();
+
+// Update UI
+uiRound.textContent = round;
+uiZombiesLeft.textContent = aliveCount;
+
 
     
   }
@@ -6071,19 +5896,19 @@ for (const w of walls) {
       const pct = clamp(z.hp / z.hpMax, 0,1);
       ctx.fillStyle = '#0f0';
       ctx.fillRect(z.x-12, z.y-18, 24*pct, 4);
-
+      
       // Boss zombies are purple, regular are red
-      ctx.fillStyle = z.isBoss ? '#8b008b' : '#8b0000';
-      ctx.beginPath();
-      ctx.arc(z.x, z.y, z.r, 0, TWO_PI);
-      ctx.fill();
+  ctx.fillStyle = z.isBoss ? '#8b008b' : '#8b0000';
+  ctx.beginPath();
+  ctx.arc(z.x, z.y, z.r, 0, TWO_PI);
+  ctx.fill();
   
-      // Boss glow effect
-      if (z.isBoss) {
-        ctx.strokeStyle = '#ff00ff';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-    }}
+  // Boss glow effect
+  if (z.isBoss) {
+    ctx.strokeStyle = '#ff00ff';
+    ctx.lineWidth = 3;
+    ctx.stroke();}
+    }
 
     // Player
     ctx.save();
