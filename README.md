@@ -19,5 +19,5 @@ Map Editor - Beta - 0.0.1
 - note spawn RN dont have a highlight when you select them just know if you hav moved that spawn you have seleceted it.
 - Go to the Discord for Updates for Map-Editor. Discrod link: [https://discord.gg/7TCrgkxT ,](https://discord.gg/eprrb2fvEc)
 
-Road Map:
+Road Map: 0.6.9.1 Final Free Beta Update for more updates go to the discord. More Maps will come soon ALL for free and will be added here too.
 <img width="1536" height="1024" alt="road_map" src="https://github.com/user-attachments/assets/026e397c-0782-4c67-a891-f82c3b9ea42f" />
