@@ -6,13 +6,14 @@
 
 
 // PlayerStats.addPoints(pts);
-// PlayerStats.addKill();
+// PlayerStats.addKill();  addBossKill
 // PlayerStats.addTrapKill();
 // PlayerStats.addTrapBuy();
 // PlayerStats.addKill();
 // PlayerStats.addUpgrade();
 // PlayerStats.addDoor();
-// PlayerStats.addRoundSurvived();
+// PlayerStats.addRoundSurvived(); addRoundSurvived
+// PlayerStats.addBossKill();
 
 // EXP REWARDS (tweak freely)
 const EXP_VALUES = {
@@ -22,7 +23,8 @@ const EXP_VALUES = {
   doorsOpened: 6,
   trapBuys: 4,
   upgrade: 35,
-  downs: -50
+  downs: -50,
+  bossKill: 50
 };
 
 
@@ -37,6 +39,7 @@ window.PlayerStats = {
   trapKills: 0,
   trapBuys: 0,
   roundsSurvived: 0,
+  bossKills: 0,
 
   reset() {
     this.totalPointsEarned = 0;
@@ -47,6 +50,7 @@ window.PlayerStats = {
     this.trapBuys = 0;
     this.trapKills = 0;
     this.roundsSurvived = 0;
+    this.bossKills = 0;
   },
 
   // 🔒 TRACKING ONLY — never touches player.points
@@ -58,6 +62,11 @@ window.PlayerStats = {
   addKill() {
     this.kills++;
     PlayerInfo.addExp(EXP_VALUES.kill);
+  },
+
+  addBossKill() {
+    this.bossKills++;
+    PlayerInfo.addExp(EXP_VALUES.bossKill);
   },
 
   addUpgrade() {
@@ -123,6 +132,7 @@ window.renderGameOverStats = function () {
     <div>💰 Points Earned: ${PlayerStats.totalPointsEarned}</div>
     <div>🔧 Upgrades: ${PlayerStats.upgrades}</div>
     <div>☠ Kills: ${PlayerStats.kills}</div>
+    <div>👹 Boss Kills: ${PlayerStats.bossKills}</div>
     <div>🧨 Trap Kills: ${PlayerStats.trapKills}</div>
     <div>⚙ Trap Buys: ${PlayerStats.trapBuys}</div>
     <div>💀 Downs: ${PlayerStats.downs}</div>
@@ -150,13 +160,14 @@ window.drawPauseStatsBar = function (ctx, canvas) {
     `Points Earned: ${PlayerStats.totalPointsEarned}`,
     `Upgrades: ${PlayerStats.upgrades}`,
     `Kills: ${PlayerStats.kills}`,
+    `Boss Kills: ${PlayerStats.bossKills}`,
     `Trap Kills: ${PlayerStats.trapKills}`,
     `Trap Buys: ${PlayerStats.trapBuys}`,
     `Downs: ${PlayerStats.downs}`,
     `Doors: ${PlayerStats.doorsOpened}`
   ];
 
-  const spacing = 180;
+  const spacing = 150;
   const startX =
     canvas.width / 2 - ((stats.length - 1) * spacing) / 2;
 
